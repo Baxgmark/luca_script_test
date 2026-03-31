@@ -5,7 +5,7 @@ local localPlayer = Players.LocalPlayer
 -- ============================================================
 --  ⚠️ ใส่ Webhook URL ของคุณตรงนี้
 -- ============================================================
-local WEBHOOK_URL    = "https://discord.com/api/webhooks/1487828555927785784/HmvL26aHOfJ7kAMrrwaDHtX6hOHIS7oVR_p_Qtjpsl8Gcg5BYbY53WNb5NzQCOu4N6uL"  -- ← ใส่ของคุณ
+local WEBHOOK_URL = "https://discord.com/api/webhooks/XXXX/XXXX"
 
 local httprequest =
     (syn and syn.request) or
