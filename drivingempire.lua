@@ -35,32 +35,32 @@ local function send(title, desc, color)
         })
     end)
 end
-
+ 
 -- ============================================================
 --  Helper แปลง "200,000" → number
 -- ============================================================
 local function parseNum(s)
     return tonumber(tostring(s):gsub(",", ""):gsub("%s", "")) or 0
 end
-
+ 
 local function fmtMoney(n)
     local s = tostring(math.floor(math.abs(n))):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
     return "$" .. s
 end
-
+ 
 task.wait(3)
-
+ 
 -- ============================================================
 --  รอ GUI โหลด — path ที่รู้แน่นอนแล้ว
 -- ============================================================
 local gui     = localPlayer:WaitForChild("PlayerGui")
 local hudGui  = gui:WaitForChild("HUD", 15)
-
+ 
 if not hudGui then
     send("❌ Error", "ไม่พบ HUD GUI", 0xE74C3C)
     return
 end
-
+ 
 -- Path: HUD.HUD.MainHUD.SideHUD.BL-Row3.Money.Holder.Money
 local moneyLabel = hudGui
     :WaitForChild("HUD")
@@ -70,62 +70,73 @@ local moneyLabel = hudGui
     :WaitForChild("Money")
     :WaitForChild("Holder")
     :WaitForChild("Money", 10)
-
+ 
 if not moneyLabel then
     send("❌ Error", "ไม่พบ Money label\nPath: HUD.HUD.MainHUD.SideHUD.BL-Row3.Money.Holder.Money", 0xE74C3C)
     return
 end
-
+ 
 print("[Tracker] ✅ เจอ Money label:", moneyLabel:GetFullName(), "→", moneyLabel.Text)
-
+ 
+-- ============================================================
+--  Helper ข้อมูลผู้เล่น
+-- ============================================================
+local function playerInfo()
+    return string.format(
+        "👤 **%s** (@%s)  •  🆔 `%d`",
+        localPlayer.DisplayName, localPlayer.Name, localPlayer.UserId
+    )
+end
+ 
 -- ============================================================
 --  Snapshot ครั้งแรก
 -- ============================================================
 local function snapshot(reason)
     send("📸 " .. reason,
-        string.format("💰 **เงิน:** `$%s`", moneyLabel.Text),
+        string.format("%s\n💰 **เงิน:** `$%s`", playerInfo(), moneyLabel.Text),
         0x2ECC71)
 end
-
+ 
 snapshot("Snapshot เริ่มต้น")
 task.wait(1)
-
+ 
 -- ============================================================
 --  Hook Money Label
 -- ============================================================
 local lastText = moneyLabel.Text
 local sessionEarned = 0
 local sessionLost   = 0
-
+ 
 moneyLabel:GetPropertyChangedSignal("Text"):Connect(function()
     local newText = moneyLabel.Text
     if newText == lastText then return end
-
+ 
     local prev = parseNum(lastText)
     local curr = parseNum(newText)
     local diff = curr - prev
-
+ 
     -- สะสม session stats
     if diff > 0 then
         sessionEarned = sessionEarned + diff
     else
         sessionLost = sessionLost + math.abs(diff)
     end
-
+ 
     local sign  = diff >= 0 and "📈 +" or "📉 "
     local color = diff >= 0 and 0x2ECC71 or 0xE74C3C
-
+ 
     local desc = string.format(
-        "**ก่อน:** `$%s`\n**หลัง:** `$%s`\n%s`%s`\n\n📊 **Session:** ได้ `%s` | เสีย `%s`",
+        "%s\n\n**ก่อน:** `$%s`\n**หลัง:** `$%s`\n%s`%s`\n\n📊 **Session:** ได้ `%s` | เสีย `%s`",
+        playerInfo(),
         lastText, newText,
         sign, fmtMoney(math.abs(diff)),
         fmtMoney(sessionEarned), fmtMoney(sessionLost)
     )
-
+ 
     send("💰 เงินเปลี่ยน", desc, color)
     lastText = newText
 end)
-
+ 
 -- ============================================================
 --  รายงานสรุปทุก 5 นาที
 -- ============================================================
@@ -134,7 +145,8 @@ task.spawn(function()
         task.wait(300)
         send("🔄 รายงานทุก 5 นาที",
             string.format(
-                "💰 **เงินปัจจุบัน:** `$%s`\n\n📊 **Session Stats**\n✅ ได้รับ: `%s`\n❌ เสียไป: `%s`\n💹 สุทธิ: `%s`",
+                "%s\n\n💰 **เงินปัจจุบัน:** `$%s`\n\n📊 **Session Stats**\n✅ ได้รับ: `%s`\n❌ เสียไป: `%s`\n💹 สุทธิ: `%s`",
+                playerInfo(),
                 moneyLabel.Text,
                 fmtMoney(sessionEarned),
                 fmtMoney(sessionLost),
@@ -142,5 +154,6 @@ task.spawn(function()
             ), 0x3498DB)
     end
 end)
-
+ 
 print("[Tracker] 🚗 Car Game Tracker พร้อมทำงาน!")
+ 
