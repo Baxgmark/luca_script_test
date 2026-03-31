@@ -214,27 +214,14 @@ local function triggerUpdate()
 
     isSending = true
 
-    task.spawn(function()
-
-        sendDataToDiscord()
-
-        task.wait(UPDATE_COOLDOWN) -- รอ 10 วินาทีก่อนส่งรอบถัดไป
-
-        isSending = false
-
-
-
-        -- ถ้ามีการเปลี่ยนแปลงค่าระหว่างที่กำลังรอคูลดาวน์ ให้ส่งใหม่อีกรอบ
-
-        if pendingUpdate then
-
-            pendingUpdate = false
-
-            triggerUpdate()
-
-        end
-
-    end)
+   -- ส่วนที่เพิ่มเข้าไปสำหรับส่งข้อมูลทุกๆ 1 ชั่วโมง
+task.spawn(function()
+    while true do
+        task.wait(3600) -- รอ 3600 วินาที (1 ชั่วโมง)
+        print("[Tracker] ถึงรอบอัปเดตรายชั่วโมง กำลังส่งข้อมูล...")
+        sendDataToDiscord() -- เรียกใช้ฟังก์ชันส่งข้อมูลโดยตรง
+    end
+end)
 
 end
 
