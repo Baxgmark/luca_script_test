@@ -5,7 +5,7 @@ local localPlayer = Players.LocalPlayer
 -- ============================================================
 --  ⚠️ ใส่ IP/URL ของ Node.js Server ตรงนี้
 -- ============================================================
-local SERVER_URL = "https://fram.mrluca.online/api/tracker"  -- ← เปลี่ยนเป็น IP ของคุณ
+local SERVER_URL = "https://fram.mrluca.shop/api/tracker"  -- ← เปลี่ยนเป็น IP ของคุณ
 
 local httprequest =
     (syn and syn.request) or (http and http.request) or
