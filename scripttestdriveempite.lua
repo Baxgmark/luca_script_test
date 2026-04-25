@@ -3,58 +3,78 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local localPlayer = Players.LocalPlayer
 
--- ฟังก์ชันเช็คว่าตู้พร้อมปล้นไหม
-local function isAtmReady(atmModel)
-    -- *** ตรงนี้สำคัญ ***: คุณต้องเข้าไปดูใน Explorer ในเกมว่า 
-    -- เวลาตู้พังแล้ว มีอะไรเปลี่ยนไปบ้าง เช่น มี BoolValue ชื่อ "Busted" เปลี่ยนเป็น true หรือเปล่า
-    -- ถ้าไม่มี ให้ลองเช็คว่าโมเดลชื่อ "Money" หายไปไหม
-    
-    local bustedValue = atmModel:FindFirstChild("Busted") -- ลองเปลี่ยนชื่อตรงนี้ตามที่เห็นใน Explorer
-    if bustedValue and bustedValue.Value == true then
-        return false -- ถ้าค่าเป็น true แสดงว่าพังแล้ว
-    end
-    
-    return true -- ถ้ายังปกติ ให้ return true
-end
-
+-- ฟังก์ชันโต้ตอบกับตู้
 local function interactWithATM(atmModel)
-    -- เช็คก่อนวาร์ป
-    if not isAtmReady(atmModel) then
-        print("⚠️ ตู้พังแล้ว ข้ามการปล้น")
-        return
-    end
-
     local character = localPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if not hrp then return end
 
-    if hrp and atmModel then
-        -- วาร์ปไปด้านหน้าตู้
-        local atmPosition = atmModel:GetPivot().Position
-        local offset = atmModel:GetPivot().LookVector * 3
-        hrp.CFrame = CFrame.new(atmPosition + offset, atmPosition)
-        
+    print("📍 กำลังดำเนินการกับตู้: " .. atmModel.Name)
+
+    -- 1. วาร์ปไปหน้าตู้
+    local atmPosition = atmModel:GetPivot().Position
+    local offset = atmModel:GetPivot().LookVector * 4 -- ห่าง 4 หน่วย
+    hrp.CFrame = CFrame.new(atmPosition + offset, atmPosition)
+    
+    task.wait(0.5) -- รอให้วาร์ปเสร็จ
+
+    -- 2. วิธีที่ 1: พยายามกด ProximityPrompt (กด E ในเกม)
+    local prompt = atmModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+        print("🔍 พบ ProximityPrompt! กำลังจำลองการกด E...")
+        fireproximityprompt(prompt)
         task.wait(0.5)
+    else
+        print("⚠️ ไม่พบ ProximityPrompt (จะข้ามไปใช้ Remote)")
+    end
 
-        -- ส่ง Remote
-        local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
-        if remote then
-            pcall(function()
-                remote:InvokeServer(atmModel)
-                print("✅ ปล้นตู้สำเร็จ!")
-            end)
+    -- 3. วิธีที่ 2: ใช้ Remote ตามที่คุณให้มา (สำรอง)
+    local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
+    
+    if remote then
+        print("📡 กำลังส่ง Remote...")
+        local success, err = pcall(function()
+            -- ใช้ path ที่คุณระบุมาใน args
+            local args = {
+                [1] = atmModel -- ส่งตัวตู้ที่สแกนเจอเข้าไป
+            }
+            remote:InvokeServer(unpack(args))
+        end)
+        
+        if success then
+            print("✅ ส่ง Remote สำเร็จ!")
+        else
+            warn("❌ ส่ง Remote ล้มเหลว:", err)
         end
+    else
+        warn("❌ หา Remote 'AttemptATMBustComplete' ใน ReplicatedStorage ไม่เจอ!")
     end
 end
 
+-- ============================================================
 -- MAIN LOOP
+-- ============================================================
 task.spawn(function()
+    print("🚀 ระบบ Auto ATM เริ่มทำงานแล้ว (รอ 30 วินาทีต่อรอบ)")
+    
     while true do
-        local foundATM = Workspace:FindFirstChild("CriminalATM", true) -- ค้นหาแบบเร็วขึ้น
+        local foundATM = nil
         
-        if foundATM and foundATM:IsA("Model") then
-            interactWithATM(foundATM)
-            task.wait(30)
+        -- ค้นหาตู้ใน Workspace
+        for _, obj in pairs(Workspace:GetDescendants()) do
+            if obj.Name == "CriminalATM" and obj:IsA("Model") then
+                foundATM = obj
+                break
+            end
         end
-        task.wait(3)
+
+        if foundATM then
+            interactWithATM(foundATM)
+            task.wait(30) -- รอ 30 วินาที
+        else
+            -- ถ้าไม่เจอ ให้รอ 5 วินาทีแล้วหาใหม่
+            task.wait(5)
+        end
     end
 end)
