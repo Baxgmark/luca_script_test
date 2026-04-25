@@ -3,63 +3,58 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local localPlayer = Players.LocalPlayer
 
--- ฟังก์ชันจัดการ Teleport และกด E
+-- ฟังก์ชันเช็คว่าตู้พร้อมปล้นไหม
+local function isAtmReady(atmModel)
+    -- *** ตรงนี้สำคัญ ***: คุณต้องเข้าไปดูใน Explorer ในเกมว่า 
+    -- เวลาตู้พังแล้ว มีอะไรเปลี่ยนไปบ้าง เช่น มี BoolValue ชื่อ "Busted" เปลี่ยนเป็น true หรือเปล่า
+    -- ถ้าไม่มี ให้ลองเช็คว่าโมเดลชื่อ "Money" หายไปไหม
+    
+    local bustedValue = atmModel:FindFirstChild("Busted") -- ลองเปลี่ยนชื่อตรงนี้ตามที่เห็นใน Explorer
+    if bustedValue and bustedValue.Value == true then
+        return false -- ถ้าค่าเป็น true แสดงว่าพังแล้ว
+    end
+    
+    return true -- ถ้ายังปกติ ให้ return true
+end
+
 local function interactWithATM(atmModel)
+    -- เช็คก่อนวาร์ป
+    if not isAtmReady(atmModel) then
+        print("⚠️ ตู้พังแล้ว ข้ามการปล้น")
+        return
+    end
+
     local character = localPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
 
     if hrp and atmModel then
-        -- 1. Teleport ไปหน้าตู้
+        -- วาร์ปไปด้านหน้าตู้
         local atmPosition = atmModel:GetPivot().Position
         local offset = atmModel:GetPivot().LookVector * 3
         hrp.CFrame = CFrame.new(atmPosition + offset, atmPosition)
         
-        task.wait(0.5) -- รอให้วาร์ปนิ่งก่อน
+        task.wait(0.5)
 
-        -- 2. ส่วนการกด E
+        -- ส่ง Remote
         local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
-        
         if remote then
-            print("🚀 กำลังพยายามกด E (ส่ง Remote)...")
-            
-            pcall(function()
-                -- ลองใช้ FireServer ก่อน (สำหรับ RemoteEvent)
-                -- ส่งค่า atmModel ไปตรงๆ ตามที่เกมต้องการ
-                remote:FireServer(atmModel)
-                print("✅ ส่ง FireServer แล้ว")
-            end)
-            
-            -- ถ้า FireServer ไม่ทำงาน ให้ลอง InvokeServer (เผื่อเป็น RemoteFunction)
             pcall(function()
                 remote:InvokeServer(atmModel)
-                print("✅ ส่ง InvokeServer แล้ว")
+                print("✅ ปล้นตู้สำเร็จ!")
             end)
-        else
-            warn("❌ ไม่พบ Remote 'AttemptATMBustComplete' ใน Remotes")
         end
     end
 end
 
--- ============================================================
--- MAIN LOOP: สแกนและจัดการ ATM ทุก 30 วินาที
--- ============================================================
+-- MAIN LOOP
 task.spawn(function()
     while true do
-        local foundATM = nil
+        local foundATM = Workspace:FindFirstChild("CriminalATM", true) -- ค้นหาแบบเร็วขึ้น
         
-        -- วนหา ATM
-        for _, obj in pairs(Workspace:GetDescendants()) do
-            if obj.Name == "CriminalATM" and obj:IsA("Model") then
-                foundATM = obj
-                break
-            end
-        end
-
-        if foundATM then
+        if foundATM and foundATM:IsA("Model") then
             interactWithATM(foundATM)
-            task.wait(30) -- รอ 30 วินาที
-        else
-            task.wait(3) -- สแกนหาใหม่
+            task.wait(30)
         end
+        task.wait(3)
     end
 end)
