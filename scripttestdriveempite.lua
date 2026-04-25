@@ -1,8 +1,6 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService = game:GetService("HttpService")
-local TeleportService = game:GetService("TeleportService")
 local LocalPlayer = Players.LocalPlayer
 
 -- ==========================================
@@ -12,72 +10,44 @@ local BOUNTY_NAME = "Bounty"
 local SAFE_ZONE_CFRAME = CFrame.new(-2540.14, 15.83, 4030.19)
 local BOUNTY_THRESHOLD = 500000
 local FLY_HEIGHT = 5000 
-local MAX_WAIT_TIME = 45 -- ⏳ ถ้ารอเกิน 45 วินาที จะทำการย้ายเซิร์ฟเวอร์ทันที!
 
 local atmRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
 
+-- ==========================================
+-- 🧠 ระบบความจำระดับเสี้ยววินาที (Event-Driven)
+-- ==========================================
 local KnownATMs = {}       
 local ReadyQueue = {}      
 local InQueueDict = {}     
 local ProcessedATMs = {}   
-local lastFoundTick = tick() -- ตัวจับเวลา
+local lastFoundTick = tick()
 
--- ==========================================
--- 🔄 ระบบย้ายเซิร์ฟเวอร์ (Server Hop)
--- ==========================================
-local hopping = false
-local function serverHop()
-    if hopping then return end
-    hopping = true
-    print("🔄 เซิร์ฟเวอร์นี้ตู้ขาดแคลน! กำลังย้ายเซิร์ฟเวอร์ใหม่ (Server Hop)...")
-    
-    local placeId = game.PlaceId
-    local serversApi = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
-    
-    local success, result = pcall(function()
-        return game:HttpGet(serversApi) -- จำเป็นต้องใช้ Executor ที่รองรับ HttpGet
-    end)
-
-    if success and result then
-        local data = HttpService:JSONDecode(result)
-        if data and data.data then
-            -- สุ่มหาเซิร์ฟเวอร์ที่คนไม่เต็ม
-            for _, server in ipairs(data.data) do
-                if server.playing < server.maxPlayers and server.id ~= game.JobId then
-                    print("✈️ เจอเซิร์ฟเวอร์ใหม่แล้ว! กำลังวาร์ป...")
-                    TeleportService:TeleportToPlaceInstance(placeId, server.id, LocalPlayer)
-                    task.wait(10) -- รอระบบย้ายเซิร์ฟ
-                end
-            end
-        end
-    end
-    
-    warn("⚠️ ย้ายเซิร์ฟเวอร์ล้มเหลว (รอสแกนตู้ในเซิร์ฟนี้ต่อไป)...")
-    hopping = false
-    lastFoundTick = tick() -- รีเซ็ตเวลาใหม่เพื่อไม่ให้สแปม Hop
-end
-
--- ==========================================
--- 🧠 ระบบความจำ & เรดาร์แบบ Real-Time
--- ==========================================
+-- ฟังก์ชันจดจำตู้ (ดักจับของใหม่แบบ Real-time)
 local function registerATM(obj)
     if obj.Name == "CriminalATM" and obj:IsA("Model") then
         table.insert(KnownATMs, obj)
     end
 end
 
+-- สแกนครั้งแรกครั้งเดียวเพื่อเก็บข้อมูลตู้ที่มีอยู่แล้ว
 for _, obj in ipairs(Workspace:GetDescendants()) do
     registerATM(obj)
 end
 
+-- 🚨 ดักจับตู้ที่กำลังจะเกิดใหม่ในอนาคต (0.01 วิ)
 Workspace.DescendantAdded:Connect(registerATM)
 
+-- ==========================================
+-- 📡 ระบบสแกนหาตู้พร้อมปล้น (ทำงานเบื้องหลัง)
+-- ==========================================
 task.spawn(function()
+    print("📡 เรดาร์สแกนตู้พร้อมใช้งาน...")
     while task.wait(0.1) do
         local foundInCycle = false
         for _, atm in ipairs(KnownATMs) do
             if atm.Parent and not ProcessedATMs[atm] and not InQueueDict[atm] then
                 local prompt = atm:FindFirstChildWhichIsA("ProximityPrompt", true)
+                
                 if prompt and prompt.Enabled then
                     table.insert(ReadyQueue, {model = atm, prompt = prompt})
                     InQueueDict[atm] = true 
@@ -85,14 +55,15 @@ task.spawn(function()
                 end
             end
         end
+        -- รีเซ็ตเวลาถ้าระบบสแกนเจอของ
         if foundInCycle then
-            lastFoundTick = tick() -- รีเซ็ตเวลาถ้าระบบสแกนเจอของพร้อมใช้
+            lastFoundTick = tick()
         end
     end
 end)
 
 -- ==========================================
--- 🛡️ ระบบเช็คค่าหัว & ปล้นตู้
+-- 🛡️ ระบบเช็คค่าหัว & 💰 ปล้นตู้
 -- ==========================================
 local function checkBounty()
     local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
@@ -117,8 +88,9 @@ local function bustATM(atmData)
     
     if not hrp or not atmModel.Parent or not prompt.Enabled then return false end
 
-    ProcessedATMs[atmModel] = true 
+    ProcessedATMs[atmModel] = true -- ล็อกสถานะตู้
 
+    -- วาร์ปแบบหันหน้า
     local atmPivot = atmModel:GetPivot()
     local standPos = (atmPivot * CFrame.new(0, 0, 3)).Position 
     hrp.CFrame = CFrame.lookAt(standPos, Vector3.new(atmPivot.Position.X, standPos.Y, atmPivot.Position.Z))
@@ -145,38 +117,49 @@ local function bustATM(atmData)
 end
 
 -- ==========================================
--- 🚀 MAIN ENGINE
+-- 🚀 MAIN ENGINE (เครื่องยนต์หลัก)
 -- ==========================================
 task.spawn(function()
-    print("🚀 [Server Hopper Engine] รับประกันเจอของใน 1 นาที!")
+    print("🚀 [Hover & Strike Engine] พร้อมลุยยาวๆ บนเซิร์ฟเวอร์นี้!")
+    local isFlying = false
     
     while true do
         checkBounty()
 
+        -- ถ้ามีตู้ในคิวให้ทำทันที
         if #ReadyQueue > 0 then
+            if isFlying then
+                print("🎯 ตู้เกิดแล้ว! ทิ้งดิ่งลงไปฟาร์ม...")
+                isFlying = false
+            end
+            
             local currentTarget = table.remove(ReadyQueue, 1)
             InQueueDict[currentTarget.model] = nil 
-            bustATM(currentTarget)
-            task.wait(1) 
-        else
-            -- เช็คเวลาว่าหาตู้ไม่ได้มานานแค่ไหนแล้ว
-            local timeWaiting = tick() - lastFoundTick
             
-            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                -- ☁️ 1. ผ่านไป 2 วิ: ลอยขึ้นฟ้า
-                if timeWaiting > 2 and timeWaiting < MAX_WAIT_TIME then
+            bustATM(currentTarget)
+            
+            -- ปล้นเสร็จ รอ 1 วิ ตามที่คุณต้องการ
+            task.wait(1) 
+            
+        else
+            -- ☁️ ถ้าคิวว่างเกิน 2 วินาที: ให้บินขึ้นไปรอรับของบนฟ้า
+            if (tick() - lastFoundTick) > 2 then
+                local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    if not isFlying then
+                        print("☁️ ตู้หมดแมพ: บินขึ้นฟ้า รอแอดมิน/ระบบเสกตู้ใหม่...")
+                        isFlying = true
+                    end
+                    
+                    -- ดันตัวละครขึ้นฟ้าและหยุดแรงโน้มถ่วง
                     if hrp.Position.Y < (FLY_HEIGHT - 100) then
                         hrp.CFrame = CFrame.new(hrp.Position.X, FLY_HEIGHT, hrp.Position.Z)
                     end
                     hrp.Velocity = Vector3.new(0,0,0)
-                
-                -- 🔄 2. ผ่านไป 45 วิ: ย้ายเซิร์ฟเวอร์ทันที!
-                elseif timeWaiting >= MAX_WAIT_TIME then
-                    serverHop()
                 end
             end
             
+            -- รอจังหวะสั้นๆ เพื่อไม่ให้ลูปกิน CPU หนักเกินไป
             task.wait(0.1)
         end
     end
