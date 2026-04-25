@@ -3,78 +3,72 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local localPlayer = Players.LocalPlayer
 
--- ฟังก์ชันโต้ตอบกับตู้
 local function interactWithATM(atmModel)
     local character = localPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     
-    if not hrp then return end
+    if not hrp or not atmModel then return end
 
-    print("📍 กำลังดำเนินการกับตู้: " .. atmModel.Name)
+    print("📍 วาร์ปไปที่: " .. atmModel.Name)
 
-    -- 1. วาร์ปไปหน้าตู้
+    -- 1. วาร์ป
     local atmPosition = atmModel:GetPivot().Position
-    local offset = atmModel:GetPivot().LookVector * 4 -- ห่าง 4 หน่วย
+    local offset = atmModel:GetPivot().LookVector * 4
     hrp.CFrame = CFrame.new(atmPosition + offset, atmPosition)
-    
-    task.wait(0.5) -- รอให้วาร์ปเสร็จ
+    task.wait(0.5)
 
-    -- 2. วิธีที่ 1: พยายามกด ProximityPrompt (กด E ในเกม)
+    -- 2. กด E (ProximityPrompt)
     local prompt = atmModel:FindFirstChildWhichIsA("ProximityPrompt", true)
     if prompt then
-        print("🔍 พบ ProximityPrompt! กำลังจำลองการกด E...")
+        print("⏳ กำลังจำลองการกดค้าง 5 วินาที...")
         fireproximityprompt(prompt)
-        task.wait(0.5)
+        
+        -- *** หัวใจสำคัญ: รอให้ครบ 5 วินาที เพื่อจำลองการกดค้าง ***
+        task.wait(5.5) 
     else
-        print("⚠️ ไม่พบ ProximityPrompt (จะข้ามไปใช้ Remote)")
+        print("⚠️ ไม่พบ ProximityPrompt")
     end
 
-    -- 3. วิธีที่ 2: ใช้ Remote ตามที่คุณให้มา (สำรอง)
+    -- 3. เรียกใช้ Remote
     local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
     
     if remote then
-        print("📡 กำลังส่ง Remote...")
+        print("📡 ส่ง Remote เพื่อรับเงิน...")
         local success, err = pcall(function()
-            -- ใช้ path ที่คุณระบุมาใน args
-            local args = {
-                [1] = atmModel -- ส่งตัวตู้ที่สแกนเจอเข้าไป
-            }
-            remote:InvokeServer(unpack(args))
+            remote:InvokeServer(atmModel)
         end)
         
         if success then
-            print("✅ ส่ง Remote สำเร็จ!")
+            print("✅ ปล้นสำเร็จ!")
         else
             warn("❌ ส่ง Remote ล้มเหลว:", err)
         end
-    else
-        warn("❌ หา Remote 'AttemptATMBustComplete' ใน ReplicatedStorage ไม่เจอ!")
     end
 end
 
 -- ============================================================
--- MAIN LOOP
+-- MAIN LOOP: สแกนใหม่แบบ Real-time
 -- ============================================================
 task.spawn(function()
-    print("🚀 ระบบ Auto ATM เริ่มทำงานแล้ว (รอ 30 วินาทีต่อรอบ)")
+    print("🚀 ระบบ Auto ATM เริ่มทำงาน")
     
     while true do
-        local foundATM = nil
+        local targetATM = nil
         
-        -- ค้นหาตู้ใน Workspace
+        -- สแกนหาตู้
         for _, obj in pairs(Workspace:GetDescendants()) do
             if obj.Name == "CriminalATM" and obj:IsA("Model") then
-                foundATM = obj
+                targetATM = obj
                 break
             end
         end
 
-        if foundATM then
-            interactWithATM(foundATM)
-            task.wait(30) -- รอ 30 วินาที
+        if targetATM then
+            interactWithATM(targetATM)
+            -- หลังปล้นเสร็จ ให้รอเวลาที่ตู้จะรีเซ็ต
+            task.wait(10) 
         else
-            -- ถ้าไม่เจอ ให้รอ 5 วินาทีแล้วหาใหม่
-            task.wait(5)
+            task.wait(3) -- ถ้าหาตู้ไม่เจอ วนหาใหม่
         end
     end
 end)
