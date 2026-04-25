@@ -159,7 +159,7 @@ task.spawn(function()
             local msg = string.format("💰 **พบ ATM!**\nพิกัด: X:%.0f, Y:%.0f, Z:%.0f", pos.X, pos.Y, pos.Z)
 
             
-
+            print("💰 **พบ ATM!**\nพิกัด: X:%.0f, Y:%.0f, Z:%.0f", pos.X, pos.Y, pos.Z)
             print("พบ ATM! กำลังดำเนินการ...")
 
             startFlying()     -- สั่งบิน
