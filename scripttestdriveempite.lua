@@ -3,56 +3,58 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
--- กำหนด Target ตามที่คุณต้องการเป๊ะๆ
-local TARGET_ATM = workspace.Game.Jobs.CriminalATMSpawners.CriminalATMSpawner.CriminalATM
-
--- ฟังก์ชันปล้น
+-- ฟังก์ชันโต้ตอบกับตู้ที่สแกนเจอ
 local function bustATM(atmModel)
     local character = LocalPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     
     if not hrp then return end
 
-    print("📍 กำลังวาร์ปไปที่ ATM...")
-    -- Teleport ไปหน้าตู้
+    print("📍 วาร์ปไปที่: " .. atmModel:GetFullName())
+    
+    -- วาร์ป
     hrp.CFrame = atmModel:GetPivot() * CFrame.new(0, 0, 4)
     task.wait(0.5)
 
-    -- 1. กด E ค้าง (ProximityPrompt)
+    -- 1. กด E (ProximityPrompt)
     local prompt = atmModel:FindFirstChildWhichIsA("ProximityPrompt", true)
     if prompt then
-        print("⏳ เริ่มกด E ค้าง 5 วินาที...")
+        print("⏳ กำลังกด E ค้าง...")
         fireproximityprompt(prompt)
-        task.wait(5.5) -- รอให้ครบเวลา 5 วินาทีตามที่เกมกำหนด
-    else
-        print("⚠️ ไม่พบ ProximityPrompt (ข้ามไปขั้นตอนถัดไป)")
+        task.wait(5.5) 
     end
 
-    -- 2. ส่ง Remote ตามที่คุณระบุ
-    print("📡 กำลังส่งข้อมูลไปยัง Server...")
-    local args = { [1] = TARGET_ATM }
+    -- 2. ส่ง Remote โดยใช้ "atmModel" ที่เราสแกนเจอ (ไม่ต้องใช้ Path เดิมแล้ว)
+    local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
     
-    local success, err = pcall(function()
-        ReplicatedStorage.Remotes.AttemptATMBustComplete:InvokeServer(unpack(args))
-    end)
+    if remote then
+        print("📡 ส่ง Remote ไปที่ Server...")
+        
+        -- ใช้ pcall เพื่อดักจับ Error ถ้า Server ปฏิเสธเรา
+        local success, err = pcall(function()
+            remote:InvokeServer(atmModel) -- ส่งตู้ที่สแกนเจอเข้าไปตรงๆ
+        end)
 
-    if success then
-        -- ย้ายมาไว้ตรงนี้ เพื่อให้มั่นใจว่าทำสำเร็จจริงๆ
-        print("✅ ปล้นสำเร็จ! (ข้อมูลถูกส่งครบถ้วน)")
+        if success then
+            print("✅ ส่งคำสั่งสำเร็จ!")
+        else
+            warn("❌ Server ปฏิเสธการปล้น: " .. tostring(err))
+        end
     else
-        warn("❌ ส่ง Remote ไม่ผ่าน:", err)
+        warn("❌ ไม่พบ Remote!")
     end
 end
 
 -- ============================================================
--- MAIN LOOP: ทำงานทุก 10 วินาที
+-- MAIN LOOP: สแกนหา ATM ใหม่ทุกรอบ
 -- ============================================================
 task.spawn(function()
-    print("🚀 ระบบ Auto ATM เริ่มทำงานแล้ว!")
+    print("🚀 ระบบเริ่มทำงาน (สแกนตู้แบบ Dynamic)")
     
     while true do
-        -- สแกนหาตู้ใน Workspace
         local foundATM = nil
+        
+        -- สแกนหา ATM ในทั้ง Workspace (วิธีนี้แม่นยำกว่าการระบุ Path)
         for _, obj in pairs(Workspace:GetDescendants()) do
             if obj.Name == "CriminalATM" and obj:IsA("Model") then
                 foundATM = obj
@@ -61,10 +63,13 @@ task.spawn(function()
         end
 
         if foundATM then
-            bustATM(foundATM)
-            task.wait(10) -- พัก 10 วินาทีตามที่ต้องการ
+            -- ก่อนปล้น ให้เช็คว่ามันยังอยู่จริง
+            if foundATM:IsDescendantOf(Workspace) then
+                bustATM(foundATM)
+                task.wait(10)
+            end
         else
-            task.wait(3) -- ถ้าหาไม่เจอ ให้หาใหม่ในอีก 3 วินาที
+            task.wait(3)
         end
     end
 end)
