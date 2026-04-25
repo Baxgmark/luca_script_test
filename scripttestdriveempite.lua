@@ -3,73 +3,81 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
--- ฟังก์ชันโต้ตอบกับตู้ที่สแกนเจอ
+-- แคช Remote ไว้ก่อน จะได้ไม่ต้องหาใหม่ทุกรอบ
+local atmRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
+
+-- ฟังก์ชันดึงตู้ ATM ทั้งหมดในแมพ (สแกนรอบเดียวแล้วเก็บใส่ Table)
+local function getATMs()
+    local atms = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj.Name == "CriminalATM" and obj:IsA("Model") then
+            table.insert(atms, obj)
+        end
+    end
+    return atms
+end
+
 local function bustATM(atmModel)
     local character = LocalPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
-    
     if not hrp then return end
 
-    print("📍 วาร์ปไปที่: " .. atmModel:GetFullName())
-    
-    -- วาร์ป
-    hrp.CFrame = atmModel:GetPivot() * CFrame.new(0, 0, 4)
-    task.wait(0.5)
+    -- วาร์ปไปที่ตู้
+    hrp.CFrame = atmModel:GetPivot() * CFrame.new(0, 0, 3)
+    task.wait(0.2) -- ลดเวลารอหลังวาร์ป (ให้โมเดลโหลดทันพอ)
 
-    -- 1. กด E (ProximityPrompt)
-    local prompt = atmModel:FindFirstChildWhichIsA("ProximityPrompt", true)
-    if prompt then
-        print("⏳ กำลังกด E ค้าง...")
-        fireproximityprompt(prompt)
-        task.wait(5.5) 
-    end
-
-    -- 2. ส่ง Remote โดยใช้ "atmModel" ที่เราสแกนเจอ (ไม่ต้องใช้ Path เดิมแล้ว)
-    local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
-    
-    if remote then
-        print("📡 ส่ง Remote ไปที่ Server...")
-        
-        -- ใช้ pcall เพื่อดักจับ Error ถ้า Server ปฏิเสธเรา
+    -- ลองส่ง Remote ยิงตรงไปที่ Server เลย (เพื่อความเร็วสูงสุด)
+    if atmRemote then
         local success, err = pcall(function()
-            remote:InvokeServer(atmModel) -- ส่งตู้ที่สแกนเจอเข้าไปตรงๆ
+            atmRemote:InvokeServer(atmModel)
         end)
 
+        -- ถ้าส่ง Remote สำเร็จ ไม่ต้องรอ 5.5 วิ
         if success then
-            print("✅ ส่งคำสั่งสำเร็จ!")
-        else
-            warn("❌ Server ปฏิเสธการปล้น: " .. tostring(err))
+            return true
         end
-    else
-        warn("❌ ไม่พบ Remote!")
     end
+
+    -- [กรณีที่ Server บังคับให้ต้องกด E ก่อน]
+    local prompt = atmModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+    if prompt then
+        -- ปรับเวลา ProximityPrompt ให้เป็น 0 (ถ้า Executor รองรับ)
+        prompt.HoldDuration = 0 
+        fireproximityprompt(prompt)
+        
+        -- รอให้ Server ประมวลผล (ปรับเวลาตรงนี้ขึ้นอยู่กับ Anti-cheat ของเกม แนะนำให้เริ่มที่ 1 วินาที)
+        task.wait(1) 
+        
+        if atmRemote then
+            pcall(function() atmRemote:InvokeServer(atmModel) end)
+        end
+        return true
+    end
+
+    return false
 end
 
 -- ============================================================
--- MAIN LOOP: สแกนหา ATM ใหม่ทุกรอบ
+-- MAIN LOOP
 -- ============================================================
 task.spawn(function()
-    print("🚀 ระบบเริ่มทำงาน (สแกนตู้แบบ Dynamic)")
+    print("🚀 เริ่มระบบออโต้ฟาร์ม (Speed Optimized)")
     
     while true do
-        local foundATM = nil
+        local allATMs = getATMs() -- ดึงข้อมูลตู้ทั้งหมด
         
-        -- สแกนหา ATM ในทั้ง Workspace (วิธีนี้แม่นยำกว่าการระบุ Path)
-        for _, obj in pairs(Workspace:GetDescendants()) do
-            if obj.Name == "CriminalATM" and obj:IsA("Model") then
-                foundATM = obj
-                break
-            end
-        end
-
-        if foundATM then
-            -- ก่อนปล้น ให้เช็คว่ามันยังอยู่จริง
-            if foundATM:IsDescendantOf(Workspace) then
-                bustATM(foundATM)
-                task.wait(10)
+        if #allATMs > 0 then
+            for _, currentATM in ipairs(allATMs) do
+                -- เช็คว่าตู้ยังอยู่และเรายังมีชีวิตอยู่
+                if currentATM:IsDescendantOf(Workspace) and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    bustATM(currentATM)
+                    task.wait(1.5) -- ลดเวลารอระหว่างเปลี่ยนตู้ให้เร็วขึ้น
+                end
             end
         else
-            task.wait(3)
+            task.wait(2) -- ถ้ารอเกิดใหม่ ให้รอ 2 วินาทีแล้วหาใหม่
         end
+        
+        task.wait(0.5) -- พักสคริปต์นิดหน่อยกันเกมค้าง (Crash)
     end
 end)
