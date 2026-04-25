@@ -1,74 +1,122 @@
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
--- ============================================================
--- 🔎 ฟังก์ชันสแกนแบบไดนามิก (Dynamic Scanner)
--- ============================================================
--- รับค่า: ชื่อของที่ต้องการหา (targetName), คลาสของมัน (targetClass)
-local function scanDynamic(targetName, targetClass)
-    local results = {}
+-- [[ ตั้งค่าคงที่ ]]
+local BOUNTY_NAME = "Bounty" -- เปลี่ยนตามชื่อใน leaderstats ของเกม (เช่น Wanted, HeadValue)
+local SAFE_ZONE_CFRAME = CFrame.new(-2540.14, 15.83, 4030.19)
+local BOUNTY_THRESHOLD = 500000
+
+-- แคช Remote สำหรับยืนยันการปล้น
+local atmRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
+
+-- ฟังก์ชันเช็คค่าหัวและวาร์ปไปจุดพัก
+local function checkBounty()
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    local bountyValue = leaderstats and leaderstats:FindFirstChild(BOUNTY_NAME)
+    
+    if bountyValue and bountyValue.Value >= BOUNTY_THRESHOLD then
+        local character = LocalPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        
+        if hrp then
+            print("🚨 ค่าหัวครบกำหนด! กำลังวาร์ปไปจุดปลอดภัย...")
+            hrp.CFrame = SAFE_ZONE_CFRAME
+            task.wait(3) -- คูลดาวน์ 3 วิ
+            print("✅ คูลดาวน์เสร็จสิ้น กลับไปสแกนตู้ต่อ")
+        end
+    end
+end
+
+-- ฟังก์ชันค้นหาตู้แบบ Dynamic (หาทั่วแมพ + เรียงตามระยะทางที่ใกล้ที่สุด)
+local function getDynamicATMs()
+    local atms = {}
     local character = LocalPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if not hrp then return atms end
 
-    -- สแกนแบบกวาดทั้ง Workspace (ไม่สนใจว่ามันจะถูกซ่อนอยู่ในโฟลเดอร์ไหน)
     for _, obj in ipairs(Workspace:GetDescendants()) do
-        -- เช็คว่าชื่อตรง และประเภทตรงกับที่เราหาหรือไม่
-        if obj.Name == targetName and obj:IsA(targetClass) then
-            
-            -- กรองเอาเฉพาะอันที่ "มีปุ่ม E ให้กด" และ "ปุ่มเปิดใช้งานอยู่"
+        if obj.Name == "CriminalATM" and obj:IsA("Model") then
             local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
-            
+            -- กรองเฉพาะตู้ที่มีปุ่ม E และปุ่มยังใช้งานได้ (ไม่พัง)
             if prompt and prompt.Enabled then
-                -- คำนวณระยะห่างระหว่างตัวเรากับเป้าหมาย
-                local distance = math.huge
-                if hrp then
-                    -- ใช้ GetPivot() เพื่อดึงพิกัดกลางของ Model เสมอ
-                    distance = (hrp.Position - obj:GetPivot().Position).Magnitude
-                end
-                
-                -- เก็บข้อมูลใส่ตาราง
-                table.insert(results, {
-                    model = obj,
-                    prompt = prompt,
-                    dist = distance
-                })
+                local dist = (hrp.Position - obj:GetPivot().Position).Magnitude
+                table.insert(atms, {model = obj, prompt = prompt, distance = dist})
             end
         end
     end
 
-    -- 🧠 ความฉลาดเพิ่มเติม: เรียงลำดับจาก "ใกล้ที่สุด" ไป "ไกลที่สุด"
-    table.sort(results, function(a, b)
-        return a.dist < b.dist
+    -- เรียงลำดับ: เอาตู้ที่ใกล้ที่สุดขึ้นก่อน
+    table.sort(atms, function(a, b)
+        return a.distance < b.distance
     end)
+    
+    return atms
+end
 
-    return results -- ส่งคืนรายการที่หาเจอทั้งหมด (เรียงระยะทางให้แล้ว)
+local function bustATM(atmData)
+    local atmModel = atmData.model
+    local prompt = atmData.prompt
+    local character = LocalPlayer.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if not hrp then return false end
+
+    -- 1. วาร์ป และ หันหน้าเข้าตู้
+    local atmCFrame = atmModel:GetPivot()
+    local atmPos = atmCFrame.Position
+    local standPos = (atmCFrame * CFrame.new(0, 0, 3)).Position 
+    
+    hrp.CFrame = CFrame.lookAt(standPos, Vector3.new(atmPos.X, standPos.Y, atmPos.Z))
+    task.wait(0.5) 
+
+    -- 2. กด E ค้าง
+    if prompt and prompt.Enabled then
+        print("⏳ กำลังปล้นตู้ห่างไป " .. math.floor(atmData.distance) .. " Studs...")
+        prompt.HoldDuration = 5
+        
+        if fireproximityprompt then
+            fireproximityprompt(prompt)
+            task.wait(5.5) -- รอจนกว่าจะปล้นเสร็จ
+            
+            -- 3. ส่ง Remote
+            if atmRemote then
+                pcall(function() atmRemote:InvokeServer(atmModel) end)
+            end
+            
+            task.wait(1.5) -- พักแอนิเมชัน
+            return true
+        end
+    end
+    return false
 end
 
 -- ============================================================
--- 🚀 ตัวอย่างการนำไปใช้งานใน Loop
+-- MAIN LOOP (ไม่ตัดโค้ดเดิม แต่เพิ่มความฉลาดเข้าไป)
 -- ============================================================
 task.spawn(function()
-    print("🚀 เริ่มระบบสแกนเรดาร์ (สแกนหาเป้าหมายที่ใกล้ที่สุด)")
+    print("🚀 ระบบเริ่มทำงาน (โหมด: Dynamic Scan + Bounty Check)")
     
     while true do
-        -- 💡 ไม่ตายตัว: คุณสามารถเปลี่ยนไปหา "Safe", "Register", "Airdrop" ได้หมดเลย
-        -- แค่เปลี่ยนชื่อ "CriminalATM" เป็นชื่อโมเดลที่คุณต้องการ
-        local targetItems = scanDynamic("CriminalATM", "Model")
+        -- เช็คค่าหัวทุกครั้งก่อนเริ่มรอบใหม่
+        checkBounty()
         
-        if #targetItems > 0 then
-            -- ดึงอันดับ 1 (index 1) ซึ่งสคริปต์คำนวณมาแล้วว่า "อยู่ใกล้เราที่สุด"
-            local nearestItem = targetItems[1]
-            
-            print(string.format("🎯 เจอเป้าหมาย %d จุด | ใกล้สุดห่างไป: %d Studs", #targetItems, nearestItem.dist))
-            
-            -- เอาเป้าหมายที่ใกล้ที่สุดไปเข้าฟังก์ชันปล้นของคุณต่อได้เลย
-            -- bustATM(nearestItem) 
-            
-        else
-            print("❌ ไม่พบเป้าหมายที่ใช้งานได้ในแมพตอนนี้")
+        local allATMs = getDynamicATMs()
+        
+        if #allATMs > 0 then
+            for _, atmData in ipairs(allATMs) do
+                -- เช็คค่าหัวอีกรอบระหว่างการทำแต่ละตู้ เพื่อความไว
+                checkBounty()
+                
+                if atmData.model:IsDescendantOf(Workspace) then
+                    bustATM(atmData)
+                end
+            end
         end
         
-        task.wait(2) -- หน่วงเวลาการสแกนรอบต่อไป
+        print("🔄 สแกนรอบใหม่ในอีก 1 วินาที...")
+        task.wait(1) 
     end
 end)
