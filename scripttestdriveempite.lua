@@ -18,7 +18,7 @@ local localPlayer = Players.LocalPlayer
 
 -- ============================================================
 
-local WEBHOOK_URL = "https://discord.com.hyra.io/api/webhooks/1293985728866291722/Lf76g8oL9B9N9qy_6twTsnqDPBGmBBdE6viGvU3ML_C-JrqM6bDwU3Rd5-OGlPDTC7Ge"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1293985728866291722/Lf76g8oL9B9N9qy_6twTsnqDPBGmBBdE6viGvU3ML_C-JrqM6bDwU3Rd5-OGlPDTC7Ge"
 
 
 
