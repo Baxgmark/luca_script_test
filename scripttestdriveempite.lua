@@ -3,45 +3,47 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local localPlayer = Players.LocalPlayer
 
--- ฟังก์ชันจัดการ Teleport และส่งคำสั่ง
+-- ฟังก์ชันจัดการ Teleport และกด E
 local function interactWithATM(atmModel)
     local character = localPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
 
     if hrp and atmModel then
-        print("📍 พบ ATM! กำลังวาร์ปไปด้านหน้า...")
-        
-        -- แก้ไข Teleport: ไปข้างหน้าตู้ 3 หน่วย และให้หันหน้าเข้าหาตู้
+        -- 1. Teleport ไปหน้าตู้
         local atmPosition = atmModel:GetPivot().Position
-        local offset = atmModel:GetPivot().LookVector * 3 -- ปรับระยะห่างตรงนี้
+        local offset = atmModel:GetPivot().LookVector * 3
         hrp.CFrame = CFrame.new(atmPosition + offset, atmPosition)
+        
+        task.wait(0.5) -- รอให้วาร์ปนิ่งก่อน
 
-        -- ส่วนกด E (ส่งค่าตามที่คุณระบุ)
-        local targetATM = workspace.Game.Jobs.CriminalATMSpawners.CriminalATMSpawner.CriminalATM
+        -- 2. ส่วนการกด E
         local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
         
         if remote then
-            -- รอสักนิดให้วาร์ปถึงที่ก่อน
-            task.wait(0.5)
+            print("🚀 กำลังพยายามกด E (ส่ง Remote)...")
             
             pcall(function()
-                -- ลองส่งแบบ InvokeServer
-                remote:InvokeServer(targetATM)
-                -- หรือถ้ามันใช้ Event ให้ลอง FireServer
-                remote:FireServer(targetATM)
-                print("✅ กด E สำเร็จ!")
+                -- ลองใช้ FireServer ก่อน (สำหรับ RemoteEvent)
+                -- ส่งค่า atmModel ไปตรงๆ ตามที่เกมต้องการ
+                remote:FireServer(atmModel)
+                print("✅ ส่ง FireServer แล้ว")
+            end)
+            
+            -- ถ้า FireServer ไม่ทำงาน ให้ลอง InvokeServer (เผื่อเป็น RemoteFunction)
+            pcall(function()
+                remote:InvokeServer(atmModel)
+                print("✅ ส่ง InvokeServer แล้ว")
             end)
         else
-            warn("❌ ไม่พบ Remote 'AttemptATMBustComplete'")
+            warn("❌ ไม่พบ Remote 'AttemptATMBustComplete' ใน Remotes")
         end
     end
 end
 
 -- ============================================================
--- MAIN LOOP: สแกนทุก 30 วินาที
+-- MAIN LOOP: สแกนและจัดการ ATM ทุก 30 วินาที
 -- ============================================================
 task.spawn(function()
-    print("🚀 เริ่มระบบ Auto ATM แล้ว...")
     while true do
         local foundATM = nil
         
@@ -55,9 +57,9 @@ task.spawn(function()
 
         if foundATM then
             interactWithATM(foundATM)
-            task.wait(30) -- รอ 30 วินาทีตามที่ขอ
+            task.wait(30) -- รอ 30 วินาที
         else
-            task.wait(3) -- ถ้าไม่เจอให้วนหาใหม่
+            task.wait(3) -- สแกนหาใหม่
         end
     end
 end)
