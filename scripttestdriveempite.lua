@@ -9,19 +9,27 @@ local function interactWithATM(atmModel)
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
 
     if hrp and atmModel then
-        print("📍 พบ ATM! กำลัง Teleport ไปที่: " .. atmModel:GetFullName())
+        print("📍 พบ ATM! กำลังวาร์ปไปด้านหน้า...")
         
-        -- 1. Teleport ไปหา ATM (ปรับระยะห่างเล็กน้อยเพื่อไม่ให้ซ้อนกัน)
-        hrp.CFrame = atmModel:GetPivot() * CFrame.new(0, 0, 3) 
+        -- แก้ไข Teleport: ไปข้างหน้าตู้ 3 หน่วย และให้หันหน้าเข้าหาตู้
+        local atmPosition = atmModel:GetPivot().Position
+        local offset = atmModel:GetPivot().LookVector * 3 -- ปรับระยะห่างตรงนี้
+        hrp.CFrame = CFrame.new(atmPosition + offset, atmPosition)
 
-        -- 2. เรียกใช้ RemoteFunction
+        -- ส่วนกด E (ส่งค่าตามที่คุณระบุ)
+        local targetATM = workspace.Game.Jobs.CriminalATMSpawners.CriminalATMSpawner.CriminalATM
         local remote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
         
         if remote then
+            -- รอสักนิดให้วาร์ปถึงที่ก่อน
+            task.wait(0.5)
+            
             pcall(function()
-                -- ส่งค่าตามที่คุณต้องการ
-                remote:InvokeServer(atmModel) 
-                print("✅ ส่งคำสั่งสำเร็จ!")
+                -- ลองส่งแบบ InvokeServer
+                remote:InvokeServer(targetATM)
+                -- หรือถ้ามันใช้ Event ให้ลอง FireServer
+                remote:FireServer(targetATM)
+                print("✅ กด E สำเร็จ!")
             end)
         else
             warn("❌ ไม่พบ Remote 'AttemptATMBustComplete'")
@@ -30,10 +38,10 @@ local function interactWithATM(atmModel)
 end
 
 -- ============================================================
--- MAIN LOOP: สแกนและจัดการ ATM
+-- MAIN LOOP: สแกนทุก 30 วินาที
 -- ============================================================
 task.spawn(function()
-    print("🚀 เริ่มระบบ Auto ATM (รอบละ 30 วินาที) แล้ว...")
+    print("🚀 เริ่มระบบ Auto ATM แล้ว...")
     while true do
         local foundATM = nil
         
@@ -47,10 +55,9 @@ task.spawn(function()
 
         if foundATM then
             interactWithATM(foundATM)
-            -- ปรับเป็น 30 วินาทีตามที่ขอ
-            task.wait(30) 
+            task.wait(30) -- รอ 30 วินาทีตามที่ขอ
+        else
+            task.wait(3) -- ถ้าไม่เจอให้วนหาใหม่
         end
-        
-        task.wait(3) -- สแกนทุก 3 วินาที
     end
 end)
