@@ -9,7 +9,7 @@ local LocalPlayer = Players.LocalPlayer
 local BOUNTY_NAME = "Bounty" 
 local SAFE_ZONE_CFRAME = CFrame.new(-2540.14, 15.83, 4030.19)
 local BOUNTY_THRESHOLD = 500000
-local FLY_HEIGHT = 5000 
+local FLY_HEIGHT = 1000 
 
 local atmRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
 
