@@ -32,21 +32,22 @@ local function findATM()
     return nil
 end
 
--- ส่งตำแหน่งทุกๆ 30 วินาที (หรือตามที่กำหนด)
+-- loop ค้นหา ATM และส่งข้อความทุกกรณี
 while true do
     local myATM = findATM()
     
     if myATM then
         local pos = myATM:GetPivot().Position
-        local message = string.format(":round_pushpin: อัปเดตตำแหน่ง ATM\nX:%.0f Y:%.0f Z:%.0f\nเวลา: %s", 
-            pos.X, pos.Y, pos.Z, os.date("%H:%M:%S"))
+        local message = string.format("✅ พบตู้ ATM แล้ว!\nตำแหน่ง: X:%.0f Y:%.0f Z:%.0f", pos.X, pos.Y, pos.Z)
         
         sendToDiscord(message)
-        print("ส่งข้อมูลรอบล่าสุดเมื่อ: " .. os.date())
+        print("เจอแล้ว! อยู่ที่: " .. myATM:GetFullName())
     else
-        print("ไม่พบ ATM ในรอบนี้")
-        sendToDiscord(":warning: ไม่พบ CriminalATM ในเกมขณะนี้")
+        local message = "❌ ไม่พบ CriminalATM ในเกมขณะนี้\nกำลังค้นหาต่อไป..."
+        
+        sendToDiscord(message)
+        print("ยังไม่พบ CriminalATM กำลังค้นหาใหม่ใน 5 วินาที...")
     end
     
-    task.wait(30)  -- รอ 30 วินาที แล้วทำงานซ้ำ
+    task.wait(5)  -- รอ 5 วินาที แล้วค้นหาใหม่ (ไม่ว่าเจอหรือไม่เจอ)
 end
