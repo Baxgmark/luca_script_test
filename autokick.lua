@@ -6,6 +6,7 @@ local Players      = game:GetService("Players")
 local UserInput    = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local HttpService  = game:GetService("HttpService")
+local Lighting     = game:GetService("Lighting")
 local localPlayer  = Players.LocalPlayer
 
 local goalMoney    = 0
@@ -13,7 +14,7 @@ local currentMoney = 0
 local tracking     = false
 
 -- ========== DISCORD WEBHOOK (แก้ไขตรงนี้!) ==========
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1499510823222247584/uAFjR_0i7LFAgZX7C5rqeJQAVcKO_Af7ug85-p2zGvmXGtDqAIH90hEsaRFGXtFGcsmX"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
 
 -- ============================================================
 --  ส่ง Log ไป Discord
@@ -24,7 +25,6 @@ local function sendToDiscord(action, details)
     local success, err = pcall(function()
         local data = {
             username = "Money Tracker Log",
-            avatar_url = "https://cdn.discordapp.com/attachments/1325377348951212163/1325377349210677278/UKC.png",
             embeds = {{
                 title = "💰 Money Tracker Log",
                 color = 0x5865F2,
@@ -32,14 +32,12 @@ local function sendToDiscord(action, details)
                     { name = "👤 ผู้เล่น", value = localPlayer.Name, inline = true },
                     { name = "🆔 User ID", value = tostring(localPlayer.UserId), inline = true },
                     { name = "⏰ เวลา", value = os.date("%Y-%m-%d %H:%M:%S"), inline = false },
-                    { name = "🎮 เกม", value = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).title or "Unknown", inline = true },
-                    { name = "📌 Place ID", value = tostring(game.PlaceId), inline = true },
+                    { name = "🎮 เกม", value = tostring(game.PlaceId), inline = true },
                     { name = "📱 Device", value = tostring(UserInput:GetPlatform()), inline = true },
                     { name = "🔄 การกระทำ", value = action, inline = false },
                     { name = "📝 รายละเอียด", value = details, inline = false }
                 },
-                footer = { text = "UKC_TEAM • Money Tracker" },
-                timestamp = os.date("!%Y-%m-%dT%H:%M:%S.000Z")
+                footer = { text = "UKC_TEAM • Money Tracker" }
             }}
         }
         
@@ -97,10 +95,11 @@ local function showIntro(parentSg)
     introFrame.ZIndex                 = 100
     introFrame.Parent                 = parentSg
 
-    -- Blur Effect
+    -- สร้าง Blur Effect
     local blur = Instance.new("BlurEffect")
-    blur.Size   = 24
-    blur.Parent = game:GetService("Lighting")
+    blur.Name = "IntroBlur"
+    blur.Size = 24
+    blur.Parent = Lighting
 
     -- Container กลาง
     local container = Instance.new("Frame")
@@ -160,32 +159,23 @@ local function showIntro(parentSg)
     )
     tweenIn:Play()
 
-    -- รอ 2.5 วิ แล้ว Fade + เลื่อนขึ้นหาย
-    task.delay(2.5, function()
-        local tweenOutFrame = TweenService:Create(
+    -- ตั้งเวลาให้เบลอหายไปหลังจาก intro จบ
+    task.delay(3.2, function()
+        -- ทำลาย Blur Effect
+        local blurEffect = Lighting:FindFirstChild("IntroBlur")
+        if blurEffect then
+            blurEffect:Destroy()
+        end
+        
+        -- Fade out intro frame
+        local tweenOut = TweenService:Create(
             introFrame,
-            TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+            TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
             { BackgroundTransparency = 1 }
         )
-        local tweenOutContainer = TweenService:Create(
-            container,
-            TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-            { Position = UDim2.new(0.5, -200, 0.3, 0) }
-        )
-        tweenOutFrame:Play()
-        tweenOutContainer:Play()
-
-        -- Fade text ด้วย
-        for _, lbl in ipairs({ line1, line2, divLine }) do
-            TweenService:Create(
-                lbl,
-                TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-                { TextTransparency = 1 }
-            ):Play()
-        end
-
-        task.delay(0.5, function()
-            blur:Destroy()
+        tweenOut:Play()
+        
+        task.delay(0.3, function()
             introFrame:Destroy()
         end)
     end)
