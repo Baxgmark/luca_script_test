@@ -1,18 +1,58 @@
 -- ============================================================
---  Money Goal Tracker — Draggable UI, ซ่อนได้, ออกอัตโนมัติ
+--  Money Goal Tracker — Draggable UI + Discord Logging
 --  + Intro Slide: UKC_SCRIPT / Develop By UKC_TEAM (3 วิ)
 -- ============================================================
 local Players      = game:GetService("Players")
 local UserInput    = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local HttpService  = game:GetService("HttpService")
 local localPlayer  = Players.LocalPlayer
 
 local goalMoney    = 0
 local currentMoney = 0
 local tracking     = false
 
+-- ========== DISCORD WEBHOOK (แก้ไขตรงนี้!) ==========
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1499510823222247584/uAFjR_0i7LFAgZX7C5rqeJQAVcKO_Af7ug85-p2zGvmXGtDqAIH90hEsaRFGXtFGcsmX"
+
 -- ============================================================
---  FIX: parseNum ที่ถูกต้อง
+--  ส่ง Log ไป Discord
+-- ============================================================
+local function sendToDiscord(action, details)
+    if WEBHOOK_URL:find("YOUR_WEBHOOK") then return end
+    
+    local success, err = pcall(function()
+        local data = {
+            username = "Money Tracker Log",
+            avatar_url = "https://cdn.discordapp.com/attachments/1325377348951212163/1325377349210677278/UKC.png",
+            embeds = {{
+                title = "💰 Money Tracker Log",
+                color = 0x5865F2,
+                fields = {
+                    { name = "👤 ผู้เล่น", value = localPlayer.Name, inline = true },
+                    { name = "🆔 User ID", value = tostring(localPlayer.UserId), inline = true },
+                    { name = "⏰ เวลา", value = os.date("%Y-%m-%d %H:%M:%S"), inline = false },
+                    { name = "🎮 เกม", value = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).title or "Unknown", inline = true },
+                    { name = "📌 Place ID", value = tostring(game.PlaceId), inline = true },
+                    { name = "📱 Device", value = tostring(UserInput:GetPlatform()), inline = true },
+                    { name = "🔄 การกระทำ", value = action, inline = false },
+                    { name = "📝 รายละเอียด", value = details, inline = false }
+                },
+                footer = { text = "UKC_TEAM • Money Tracker" },
+                timestamp = os.date("!%Y-%m-%dT%H:%M:%S.000Z")
+            }}
+        }
+        
+        local json = HttpService:JSONEncode(data)
+        local headers = {["Content-Type"] = "application/json"}
+        request({Url = WEBHOOK_URL, Method = "POST", Headers = headers, Body = json})
+    end)
+    
+    if not success then warn("[Discord] ส่ง log ไม่สำเร็จ:", err) end
+end
+
+-- ============================================================
+--  parseNum ที่ถูกต้อง
 -- ============================================================
 local function parseNum(s)
     local cleaned = tostring(s):gsub(",", ""):gsub("%s+", "")
@@ -37,11 +77,10 @@ end
 -- ============================================================
 --  ออกจากเกม
 -- ============================================================
-local function kickPlayer()
-    pcall(function()
-        game:GetService("TeleportService"):Teleport(game.PlaceId, localPlayer)
-    end)
-    task.wait(2)
+local function kickPlayer(reason)
+    sendToDiscord("✅ บรรลุเป้าหมาย", string.format("เป้าหมาย: $%s | เงินปัจจุบัน: $%s\nเหตุผล: %s", 
+        formatNum(goalMoney), formatNum(currentMoney), reason or "ครบเป้าหมาย"))
+    task.wait(1)
     pcall(function() game:Shutdown() end)
 end
 
@@ -66,7 +105,7 @@ local function showIntro(parentSg)
     -- Container กลาง
     local container = Instance.new("Frame")
     container.Size                   = UDim2.new(0, 400, 0, 130)
-    container.Position               = UDim2.new(0.5, -200, 0.7, 0) -- เริ่มจากล่าง
+    container.Position               = UDim2.new(0.5, -200, 0.7, 0)
     container.BackgroundTransparency = 1
     container.ZIndex                 = 101
     container.Parent                 = introFrame
@@ -418,6 +457,7 @@ local function createUI()
     --  ปุ่มปิด
     -- ============================================================
     closeBtn.MouseButton1Click:Connect(function()
+        sendToDiscord("❌ ปิดโปรแกรม", string.format("ผู้เล่นปิด Money Tracker (เป้าหมาย $%s)", formatNum(goalMoney)))
         sg:Destroy()
     end)
 
@@ -435,9 +475,14 @@ local function createUI()
         goalLbl.TextColor3 = Color3.fromRGB(255, 200, 80)
         tracking           = true
         updateUI()
+        
+        -- ส่ง Log การตั้งเป้าหมาย
+        sendToDiscord("🎯 ตั้งเป้าหมาย", string.format("ตั้งเป้าหมาย: $%s | เงินปัจจุบัน: $%s", 
+            formatNum(goalMoney), formatNum(currentMoney)))
+        
         if currentMoney >= goalMoney then
             goalLbl.Text = "✅ ครบแล้ว! ออกใน 3 วิ..."
-            task.delay(3, kickPlayer)
+            task.delay(3, function() kickPlayer("ตั้งเป้าหมายแล้วสำเร็จทันที") end)
         end
     end)
 
@@ -450,19 +495,24 @@ end
 task.wait(3)
 
 local gui    = localPlayer:WaitForChild("PlayerGui")
-local hudGui = gui:WaitForChild("HUD", 15)
-if not hudGui then warn("[Tracker] ไม่พบ HUD GUI") return end
+local hudGui = gui:FindFirstChild("HUD")
+if not hudGui then 
+    warn("[Tracker] ไม่พบ HUD GUI")
+    sendToDiscord("⚠️ ข้อผิดพลาด", "ไม่พบ HUD GUI ในเกมนี้")
+    return 
+end
 
-local moneyLabel = hudGui
-    :WaitForChild("HUD")
-    :WaitForChild("MainHUD")
-    :WaitForChild("SideHUD")
-    :WaitForChild("BL-Row3")
-    :WaitForChild("Money")
-    :WaitForChild("Holder")
-    :WaitForChild("Money", 10)
+local moneyLabel = nil
+local success, err = pcall(function()
+    moneyLabel = hudGui:WaitForChild("HUD"):WaitForChild("MainHUD"):WaitForChild("SideHUD"):WaitForChild("BL-Row3"):WaitForChild("Money"):WaitForChild("Holder"):WaitForChild("Money", 10)
+end)
 
-if not moneyLabel then warn("[Tracker] ไม่พบ Money label") return end
+if not moneyLabel then 
+    warn("[Tracker] ไม่พบ Money label:", err)
+    sendToDiscord("⚠️ ข้อผิดพลาด", "ไม่พบ Money label ใน UI ของเกม")
+    return 
+end
+
 print("[Tracker] ✅ พบ Money label:", moneyLabel:GetFullName())
 
 -- ============================================================
@@ -472,10 +522,15 @@ local updateUI   = createUI()
 currentMoney     = parseNum(moneyLabel.Text)
 updateUI()
 
+-- ส่ง Log การเริ่มต้น
+sendToDiscord("🚀 เริ่มใช้งาน", string.format("ผู้เล่น %s เริ่มใช้ Money Tracker\nเงินเริ่มต้น: $%s", 
+    localPlayer.Name, formatNum(currentMoney)))
+
 -- ============================================================
 --  Hook เงินเปลี่ยน
 -- ============================================================
 local lastText = moneyLabel.Text
+local goalReachedNotified = false
 
 moneyLabel:GetPropertyChangedSignal("Text"):Connect(function()
     local newText = moneyLabel.Text
@@ -484,8 +539,10 @@ moneyLabel:GetPropertyChangedSignal("Text"):Connect(function()
     currentMoney = parseNum(newText)
     updateUI()
 
-    if tracking and goalMoney > 0 and currentMoney >= goalMoney then
+    if tracking and goalMoney > 0 and currentMoney >= goalMoney and not goalReachedNotified then
+        goalReachedNotified = true
         tracking = false
+        
         local pg  = localPlayer:FindFirstChild("PlayerGui")
         local sg2 = pg and pg:FindFirstChild("MoneyTrackerGui")
         if sg2 then
@@ -509,8 +566,9 @@ moneyLabel:GetPropertyChangedSignal("Text"):Connect(function()
                 nl.ZIndex             = 16
             end
         end
-        task.delay(3, kickPlayer)
+        
+        task.delay(3, function() kickPlayer("เก็บเงินครบเป้าหมาย") end)
     end
 end)
 
-print("[Tracker] 🎯 พร้อมทำงาน!")
+print("[Tracker] 🎯 พร้อมทำงาน! (พร้อมส่ง Log ไป Discord)")
