@@ -1,8 +1,10 @@
 -- ============================================================
 --  Money Goal Tracker — Draggable UI, ซ่อนได้, ออกอัตโนมัติ
+--  + Intro Slide: UKC_SCRIPT / Develop By UKC_TEAM (3 วิ)
 -- ============================================================
 local Players      = game:GetService("Players")
 local UserInput    = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local localPlayer  = Players.LocalPlayer
 
 local goalMoney    = 0
@@ -10,10 +12,9 @@ local currentMoney = 0
 local tracking     = false
 
 -- ============================================================
---  FIX: parseNum ที่ถูกต้อง — ไม่ใช้ argument ที่ 2 ของ tonumber
+--  FIX: parseNum ที่ถูกต้อง
 -- ============================================================
 local function parseNum(s)
-    -- ลบ comma และ whitespace ก่อน แล้วค่อย tonumber
     local cleaned = tostring(s):gsub(",", ""):gsub("%s+", "")
     return tonumber(cleaned) or 0
 end
@@ -45,6 +46,113 @@ local function kickPlayer()
 end
 
 -- ============================================================
+--  Intro Slide — UKC_SCRIPT / Develop By UKC_TEAM (3 วิ)
+-- ============================================================
+local function showIntro(parentSg)
+    local introFrame = Instance.new("Frame")
+    introFrame.Size                   = UDim2.new(1, 0, 1, 0)
+    introFrame.Position               = UDim2.new(0, 0, 0, 0)
+    introFrame.BackgroundColor3       = Color3.fromRGB(10, 10, 20)
+    introFrame.BackgroundTransparency = 0.15
+    introFrame.BorderSizePixel        = 0
+    introFrame.ZIndex                 = 100
+    introFrame.Parent                 = parentSg
+
+    -- Blur Effect
+    local blur = Instance.new("BlurEffect")
+    blur.Size   = 24
+    blur.Parent = game:GetService("Lighting")
+
+    -- Container กลาง
+    local container = Instance.new("Frame")
+    container.Size                   = UDim2.new(0, 400, 0, 130)
+    container.Position               = UDim2.new(0.5, -200, 0.7, 0) -- เริ่มจากล่าง
+    container.BackgroundTransparency = 1
+    container.ZIndex                 = 101
+    container.Parent                 = introFrame
+
+    local layout = Instance.new("UIListLayout")
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.VerticalAlignment   = Enum.VerticalAlignment.Center
+    layout.Padding             = UDim.new(0, 8)
+    layout.Parent              = container
+
+    -- บรรทัด 1: UKC_SCRIPT
+    local line1 = Instance.new("TextLabel")
+    line1.Size                    = UDim2.new(1, 0, 0, 64)
+    line1.BackgroundTransparency  = 1
+    line1.Text                    = "UKC_SCRIPT"
+    line1.TextColor3              = Color3.fromRGB(210, 190, 255)
+    line1.Font                    = Enum.Font.GothamBold
+    line1.TextSize                = 40
+    line1.TextXAlignment          = Enum.TextXAlignment.Center
+    line1.TextStrokeTransparency  = 0.3
+    line1.TextStrokeColor3        = Color3.fromRGB(130, 80, 255)
+    line1.ZIndex                  = 102
+    line1.Parent                  = container
+
+    -- Divider เส้นบางๆ
+    local divLine = Instance.new("Frame")
+    divLine.Size             = UDim2.new(0.7, 0, 0, 1)
+    divLine.BackgroundColor3 = Color3.fromRGB(120, 100, 200)
+    divLine.BorderSizePixel  = 0
+    divLine.ZIndex           = 102
+    divLine.Parent           = container
+
+    -- บรรทัด 2: Develop By UKC_TEAM
+    local line2 = Instance.new("TextLabel")
+    line2.Size                    = UDim2.new(1, 0, 0, 36)
+    line2.BackgroundTransparency  = 1
+    line2.Text                    = "Develop By UKC_TEAM"
+    line2.TextColor3              = Color3.fromRGB(160, 150, 210)
+    line2.Font                    = Enum.Font.Gotham
+    line2.TextSize                = 18
+    line2.TextXAlignment          = Enum.TextXAlignment.Center
+    line2.TextStrokeTransparency  = 0.6
+    line2.TextStrokeColor3        = Color3.fromRGB(80, 60, 160)
+    line2.ZIndex                  = 102
+    line2.Parent                  = container
+
+    -- Slide-in ขึ้นมากลางจอ
+    local tweenIn = TweenService:Create(
+        container,
+        TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+        { Position = UDim2.new(0.5, -200, 0.5, -65) }
+    )
+    tweenIn:Play()
+
+    -- รอ 2.5 วิ แล้ว Fade + เลื่อนขึ้นหาย
+    task.delay(2.5, function()
+        local tweenOutFrame = TweenService:Create(
+            introFrame,
+            TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+            { BackgroundTransparency = 1 }
+        )
+        local tweenOutContainer = TweenService:Create(
+            container,
+            TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+            { Position = UDim2.new(0.5, -200, 0.3, 0) }
+        )
+        tweenOutFrame:Play()
+        tweenOutContainer:Play()
+
+        -- Fade text ด้วย
+        for _, lbl in ipairs({ line1, line2, divLine }) do
+            TweenService:Create(
+                lbl,
+                TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+                { TextTransparency = 1 }
+            ):Play()
+        end
+
+        task.delay(0.5, function()
+            blur:Destroy()
+            introFrame:Destroy()
+        end)
+    end)
+end
+
+-- ============================================================
 --  สร้าง UI
 -- ============================================================
 local function createUI()
@@ -58,6 +166,9 @@ local function createUI()
     sg.ZIndexBehavior  = Enum.ZIndexBehavior.Sibling
     sg.IgnoreGuiInset  = true
     sg.Parent          = pg
+
+    -- เรียก Intro Slide
+    showIntro(sg)
 
     -- ============================================================
     --  ปุ่ม Toggle (แสดงเมื่อซ่อน UI หลัก)
@@ -102,7 +213,6 @@ local function createUI()
     titleBar.Parent           = frame
     Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
 
-    -- ปิดมุมล่างของ titleBar
     local titleFix = Instance.new("Frame")
     titleFix.Size             = UDim2.new(1, 0, 0, 10)
     titleFix.Position         = UDim2.new(0, 0, 1, -10)
@@ -123,7 +233,6 @@ local function createUI()
     titleLbl.ZIndex             = 12
     titleLbl.Parent             = titleBar
 
-    -- ปุ่มซ่อน
     local hideBtn = Instance.new("TextButton")
     hideBtn.Size             = UDim2.new(0, 26, 0, 26)
     hideBtn.Position         = UDim2.new(1, -62, 0, 5)
@@ -137,7 +246,6 @@ local function createUI()
     hideBtn.Parent           = titleBar
     Instance.new("UICorner", hideBtn).CornerRadius = UDim.new(0, 6)
 
-    -- ปุ่มปิด
     local closeBtn = Instance.new("TextButton")
     closeBtn.Size             = UDim2.new(0, 26, 0, 26)
     closeBtn.Position         = UDim2.new(1, -32, 0, 5)
@@ -151,7 +259,6 @@ local function createUI()
     closeBtn.Parent           = titleBar
     Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
 
-    -- Divider
     local div = Instance.new("Frame")
     div.Size             = UDim2.new(1, -24, 0, 1)
     div.Position         = UDim2.new(0, 12, 0, 38)
@@ -159,7 +266,6 @@ local function createUI()
     div.BorderSizePixel  = 0
     div.Parent           = frame
 
-    -- เงินปัจจุบัน
     local curLbl = Instance.new("TextLabel")
     curLbl.Size               = UDim2.new(1, -24, 0, 22)
     curLbl.Position           = UDim2.new(0, 12, 0, 48)
@@ -171,7 +277,6 @@ local function createUI()
     curLbl.TextXAlignment     = Enum.TextXAlignment.Left
     curLbl.Parent             = frame
 
-    -- เป้าหมาย
     local goalLbl = Instance.new("TextLabel")
     goalLbl.Size               = UDim2.new(1, -24, 0, 22)
     goalLbl.Position           = UDim2.new(0, 12, 0, 70)
@@ -183,7 +288,6 @@ local function createUI()
     goalLbl.TextXAlignment     = Enum.TextXAlignment.Left
     goalLbl.Parent             = frame
 
-    -- Progress bar bg
     local barBg = Instance.new("Frame")
     barBg.Size             = UDim2.new(1, -24, 0, 10)
     barBg.Position         = UDim2.new(0, 12, 0, 98)
@@ -199,7 +303,6 @@ local function createUI()
     barFill.Parent           = barBg
     Instance.new("UICorner", barFill).CornerRadius = UDim.new(0, 5)
 
-    -- % label
     local pctLbl = Instance.new("TextLabel")
     pctLbl.Size               = UDim2.new(1, -24, 0, 18)
     pctLbl.Position           = UDim2.new(0, 12, 0, 112)
@@ -211,7 +314,6 @@ local function createUI()
     pctLbl.TextXAlignment     = Enum.TextXAlignment.Left
     pctLbl.Parent             = frame
 
-    -- Input bg
     local inputBg = Instance.new("Frame")
     inputBg.Size             = UDim2.new(1, -24, 0, 34)
     inputBg.Position         = UDim2.new(0, 12, 0, 136)
@@ -235,7 +337,6 @@ local function createUI()
     input.ClearTextOnFocus   = false
     input.Parent             = inputBg
 
-    -- Set Goal button
     local setBtn = Instance.new("TextButton")
     setBtn.Size             = UDim2.new(1, -24, 0, 34)
     setBtn.Position         = UDim2.new(0, 12, 0, 180)
@@ -266,7 +367,7 @@ local function createUI()
     end
 
     -- ============================================================
-    --  Drag ได้ (InputBegan บน titleBar)
+    --  Drag ได้
     -- ============================================================
     local dragging, dragStart, startPos = false, nil, nil
 
@@ -304,13 +405,13 @@ local function createUI()
     --  ปุ่มซ่อน / แสดง
     -- ============================================================
     hideBtn.MouseButton1Click:Connect(function()
-        frame.Visible      = false
-        toggleBtn.Visible  = true
+        frame.Visible     = false
+        toggleBtn.Visible = true
     end)
 
     toggleBtn.MouseButton1Click:Connect(function()
-        frame.Visible      = true
-        toggleBtn.Visible  = false
+        frame.Visible     = true
+        toggleBtn.Visible = false
     end)
 
     -- ============================================================
@@ -326,7 +427,7 @@ local function createUI()
     setBtn.MouseButton1Click:Connect(function()
         local raw = parseNum(input.Text)
         if raw <= 0 then
-            goalLbl.Text      = "⚠️ กรอกตัวเลขให้ถูกต้อง"
+            goalLbl.Text       = "⚠️ กรอกตัวเลขให้ถูกต้อง"
             goalLbl.TextColor3 = Color3.fromRGB(255, 100, 100)
             return
         end
@@ -385,7 +486,6 @@ moneyLabel:GetPropertyChangedSignal("Text"):Connect(function()
 
     if tracking and goalMoney > 0 and currentMoney >= goalMoney then
         tracking = false
-        -- แจ้งเตือน
         local pg  = localPlayer:FindFirstChild("PlayerGui")
         local sg2 = pg and pg:FindFirstChild("MoneyTrackerGui")
         if sg2 then
