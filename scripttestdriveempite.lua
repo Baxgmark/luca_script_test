@@ -16,13 +16,40 @@ local DEFAULT_BOUNTY_THRESHOLD = 500000
 local isRunning = false
 local currentBountyThreshold = DEFAULT_BOUNTY_THRESHOLD
 local cachedATMs = {}
-local lastScanTime = 0
 
 -- แคช Remote
 local atmRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
 
 -- ============================================================
--- 1. Intro Slide — UKC_SCRIPT / Develop By UKC_TEAM
+-- 1. ระบบ Cache ตู้แบบ Real-time (เร็ว 100% ไม่มีหน่วง)
+-- ============================================================
+local function addATMToCache(obj)
+    if obj.Name == "CriminalATM" and obj:IsA("Model") then
+        local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if not prompt then
+            -- ถ้าระบบสร้างตู้แต่ปุ่มยังไม่มา ให้รอ 0.5 วิแล้วเช็คใหม่
+            task.delay(0.5, function()
+                prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+                if prompt then
+                    table.insert(cachedATMs, {model = obj, prompt = prompt})
+                end
+            end)
+        else
+            table.insert(cachedATMs, {model = obj, prompt = prompt})
+        end
+    end
+end
+
+-- สแกนครั้งแรกครั้งเดียวตอนรันสคริปต์
+for _, obj in ipairs(Workspace:GetDescendants()) do
+    addATMToCache(obj)
+end
+
+-- ดักจับตู้ที่จะเกิดใหม่ตลอดเวลา โดยไม่ต้องวนลูปสแกนให้แลค
+Workspace.DescendantAdded:Connect(addATMToCache)
+
+-- ============================================================
+-- 2. Intro Slide & UI
 -- ============================================================
 local function showIntro(parentSg)
     local introFrame = Instance.new("Frame")
@@ -98,9 +125,6 @@ local function showIntro(parentSg)
     end)
 end
 
--- ============================================================
--- 2. สร้าง Main UI
--- ============================================================
 local existingGui = CoreGui:FindFirstChild("UKC_AutoATM")
 if existingGui then existingGui:Destroy() end
 
@@ -202,7 +226,7 @@ ToggleBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
--- 3. Core Logic (อ่านค่าหัวจาก 3D Text บนหัว)
+-- 3. Core Logic
 -- ============================================================
 local function updateStatus(text)
     if StatusLabel then StatusLabel.Text = "Status: " .. text end
@@ -242,26 +266,20 @@ local function autoConfirmJob()
     end
 end
 
--- [ อัปเดตใหม่: ฟังก์ชันเช็คค่าหัวจากป้าย 3D บนหัวตัวละคร ]
 local function checkBounty()
     local character = LocalPlayer.Character
     if not character then return false end
 
     local highestNumberFound = 0
     
-    -- หาข้อความทั้งหมดที่อยู่ในโมเดลตัวละคร (เช่นลอยอยู่บนหัว)
     for _, obj in ipairs(character:GetDescendants()) do
         if obj:IsA("TextLabel") then
-            -- เช็คว่า TextLabel นี้อยู่ในป้าย 3D (BillboardGui หรือ SurfaceGui)
             if obj:FindFirstAncestorWhichIsA("BillboardGui") or obj:FindFirstAncestorWhichIsA("SurfaceGui") then
                 local text = obj.Text
-                -- ลบเครื่องหมายลูกน้ำออก เช่น "500,000" ให้กลายเป็น "500000"
                 local cleanText = string.gsub(text, ",", "")
                 
-                -- สแกนหาชุดตัวเลขทั้งหมดในข้อความ
                 for numberStr in string.gmatch(cleanText, "%d+") do
                     local num = tonumber(numberStr)
-                    -- เก็บค่าตัวเลขที่มากที่สุดที่เจอในป้าย (ป้องกันการติดบัคเลขเลเวลหรืออื่นๆ)
                     if num and num > highestNumberFound then
                         highestNumberFound = num
                     end
@@ -270,7 +288,6 @@ local function checkBounty()
         end
     end
 
-    -- ถ้ายอดเงินค่าหัวที่เจอมากกว่าหรือเท่ากับค่าที่ตั้งไว้ (และมีค่ามากกว่า 0)
     if highestNumberFound >= currentBountyThreshold and currentBountyThreshold > 0 then
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if hrp then
@@ -284,33 +301,25 @@ local function checkBounty()
     return false
 end
 
-local function refreshATMCache()
-    local now = tick()
-    if now - lastScanTime < 10 then return end
-    lastScanTime = now
-    
-    cachedATMs = {}
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj.Name == "CriminalATM" and obj:IsA("Model") then
-            local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
-            if prompt then
-                table.insert(cachedATMs, {model = obj, prompt = prompt})
-            end
-        end
-    end
-end
-
+-- ดึงตู้จากแคชมาคำนวณระยะ (รวดเร็วมาก)
 local function getDynamicATMs()
-    refreshATMCache()
     local validATMs = {}
     local character = LocalPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     if not hrp then return validATMs end
 
-    for _, atmData in ipairs(cachedATMs) do
-        if atmData.model.Parent and atmData.prompt and atmData.prompt.Enabled then
-            local dist = (hrp.Position - atmData.model:GetPivot().Position).Magnitude
-            table.insert(validATMs, {model = atmData.model, prompt = atmData.prompt, distance = dist})
+    for i = #cachedATMs, 1, -1 do
+        local atmData = cachedATMs[i]
+        -- เช็คว่าตู้ยังอยู่ และปุ่มยังกดได้
+        if atmData.model and atmData.model.Parent and atmData.prompt and atmData.prompt.Parent then
+            if atmData.prompt.Enabled then
+                local targetPos = atmData.prompt.Parent:IsA("BasePart") and atmData.prompt.Parent.Position or atmData.model:GetPivot().Position
+                local dist = (hrp.Position - targetPos).Magnitude
+                table.insert(validATMs, {model = atmData.model, prompt = atmData.prompt, distance = dist})
+            end
+        else
+            -- ถ้าตู้พังหรือโดนลบ ให้ลบทิ้งจากแคชเลย (จัดการขยะ)
+            table.remove(cachedATMs, i)
         end
     end
 
@@ -318,6 +327,7 @@ local function getDynamicATMs()
     return validATMs
 end
 
+-- [อัปเดต] ระบบหันหน้าและวาร์ปเข้าปุ่มแบบแม่นยำ 100%
 local function bustATM(atmData)
     local atmModel = atmData.model
     local prompt = atmData.prompt
@@ -325,22 +335,39 @@ local function bustATM(atmData)
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     if not hrp then return false end
 
-    local atmCFrame = atmModel:GetPivot()
-    local atmPos = atmCFrame.Position
-    local standPos = (atmCFrame * CFrame.new(0, 0, 3)).Position 
-    
-    hrp.CFrame = CFrame.lookAt(standPos, Vector3.new(atmPos.X, standPos.Y, atmPos.Z))
-    task.wait(0.5) 
+    local promptPart = prompt.Parent
+    if promptPart and promptPart:IsA("BasePart") then
+        -- หาตำแหน่งถอยหลังออกมาจากด้านหน้าปุ่ม (อ้างอิงจาก CFrame ของตัวปุ่ม)
+        -- ทำให้ตัวละครยืนหันหน้าเข้าปุ่มเป๊ะๆ ไม่ว่าตู้จะหันไปทางไหน
+        local offsetCFrame = promptPart.CFrame * CFrame.new(0, 0, 2.5) 
+        
+        -- ป้องกันตัวละครมุดดิน (ยึดความสูง Y เดิมของตู้/ตัวละคร)
+        local standPosition = Vector3.new(offsetCFrame.Position.X, promptPart.Position.Y, offsetCFrame.Position.Z)
+        local lookPosition = Vector3.new(promptPart.Position.X, promptPart.Position.Y, promptPart.Position.Z)
+        
+        hrp.CFrame = CFrame.lookAt(standPosition, lookPosition)
+    else
+        -- ระบบสำรอง กรณีที่ปุ่มไม่ได้ผูกกับพาร์ทโดยตรง
+        local atmCFrame = atmModel:GetPivot()
+        local standPos = (atmCFrame * CFrame.new(0, 0, 3)).Position 
+        hrp.CFrame = CFrame.lookAt(standPos, Vector3.new(atmCFrame.Position.X, standPos.Y, atmCFrame.Position.Z))
+    end
+
+    task.wait(0.3) -- รอเซิร์ฟเวอร์อัปเดตตำแหน่งให้ชัวร์ก่อนกด
 
     if prompt and prompt.Enabled then
         updateStatus("Busting ATM (" .. math.floor(atmData.distance) .. " st.)")
-        prompt.HoldDuration = 5
+        
+        -- แอบปรับลดเวลา HoldDuration ให้ไวกว่าเดิม 
+        local waitTime = prompt.HoldDuration > 0 and prompt.HoldDuration or 5
+        prompt.HoldDuration = 0 
         
         if fireproximityprompt then
             fireproximityprompt(prompt)
-            task.wait(5.5) 
+            task.wait(waitTime + 0.2) -- รอเท่าเกจเวลาเดิมของมัน + เผื่อแลคนิดหน่อย
+            
             if atmRemote then pcall(function() atmRemote:InvokeServer(atmModel) end) end
-            task.wait(1.5) 
+            task.wait(0.5) -- ลดเวลาพักรอบ จะได้ไปตู้ต่อไปไวขึ้น
             return true
         end
     end
@@ -363,7 +390,7 @@ task.spawn(function()
                         if not isRunning then break end
                         if checkBounty() then break end
                         
-                        if atmData.model:IsDescendantOf(Workspace) then
+                        if atmData.model.Parent then
                             bustATM(atmData)
                         end
                     end
@@ -374,17 +401,15 @@ task.spawn(function()
                     
                     if hrp then
                         hrp.CFrame = JOB_CENTER_CFRAME 
-                        task.wait(1.5) 
+                        task.wait(1) -- ลดเวลารอที่จุดรับงานให้เร็วขึ้น
                         
                         updateStatus("Confirming Job...")
                         autoConfirmJob() 
-                        task.wait(2) 
-                        
-                        lastScanTime = 0 
+                        task.wait(1.5) -- รอ UI ปิด
                     end
                 end
             end
         end
-        task.wait(1) 
+        task.wait(0.5) -- ลดดีเลย์ของลูปหลัก ทำให้มันเช็คสถานะไวขึ้น
     end
 end)
