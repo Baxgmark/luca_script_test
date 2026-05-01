@@ -7,9 +7,10 @@ local CoreGui = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 
--- [[ ตั้งค่าเริ่มต้น ]]
+-- [[ ตั้งค่าคงที่ ]]
 local BOUNTY_NAME = "Bounty"
 local SAFE_ZONE_CFRAME = CFrame.new(-2540.14, 15.83, 4030.19)
+local JOB_CENTER_CFRAME = CFrame.new(-2524.55, 15.83, 4015.16) -- พิกัดจุดรับงาน
 local DEFAULT_BOUNTY_THRESHOLD = 500000
 
 -- สถานะของ Script
@@ -27,7 +28,6 @@ local atmRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStor
 local function showIntro(parentSg)
     local introFrame = Instance.new("Frame")
     introFrame.Size = UDim2.new(1, 0, 1, 0)
-    introFrame.Position = UDim2.new(0, 0, 0, 0)
     introFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
     introFrame.BackgroundTransparency = 0.15
     introFrame.BorderSizePixel = 0
@@ -59,17 +59,14 @@ local function showIntro(parentSg)
     line1.TextColor3 = Color3.fromRGB(210, 190, 255)
     line1.Font = Enum.Font.GothamBold
     line1.TextSize = 40
-    line1.TextXAlignment = Enum.TextXAlignment.Center
     line1.TextStrokeTransparency = 0.3
     line1.TextStrokeColor3 = Color3.fromRGB(130, 80, 255)
-    line1.ZIndex = 102
     line1.Parent = container
 
     local divLine = Instance.new("Frame")
     divLine.Size = UDim2.new(0.7, 0, 0, 1)
     divLine.BackgroundColor3 = Color3.fromRGB(120, 100, 200)
     divLine.BorderSizePixel = 0
-    divLine.ZIndex = 102
     divLine.Parent = container
 
     local line2 = Instance.new("TextLabel")
@@ -79,10 +76,6 @@ local function showIntro(parentSg)
     line2.TextColor3 = Color3.fromRGB(160, 150, 210)
     line2.Font = Enum.Font.Gotham
     line2.TextSize = 18
-    line2.TextXAlignment = Enum.TextXAlignment.Center
-    line2.TextStrokeTransparency = 0.6
-    line2.TextStrokeColor3 = Color3.fromRGB(80, 60, 160)
-    line2.ZIndex = 102
     line2.Parent = container
 
     local tweenIn = TweenService:Create(
@@ -109,7 +102,6 @@ end
 -- ============================================================
 -- 2. สร้าง Main UI
 -- ============================================================
--- ตรวจสอบและสร้าง ScreenGui (กันการรันซ้ำแล้ว UI ซ้อน)
 local existingGui = CoreGui:FindFirstChild("UKC_AutoATM")
 if existingGui then existingGui:Destroy() end
 
@@ -117,26 +109,22 @@ local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "UKC_AutoATM"
 ScreenGui.Parent = CoreGui
 
--- เรียกใช้ Intro
 showIntro(ScreenGui)
 
--- สร้างหน้าต่างหลัก
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, 300, 0, 200)
 MainFrame.Position = UDim2.new(0.5, -150, 0.5, -100)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
-MainFrame.Draggable = true -- ทำให้ลากได้
-MainFrame.Visible = false -- ซ่อนไว้รอ Intro จบ
+MainFrame.Draggable = true
+MainFrame.Visible = false 
 MainFrame.Parent = ScreenGui
 
--- ใส่ขอบมนให้ UI
 local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 10)
 UICorner.Parent = MainFrame
 
--- หัวข้อ UI
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 0, 40)
 Title.BackgroundTransparency = 1
@@ -146,7 +134,6 @@ Title.Font = Enum.Font.GothamBold
 Title.TextSize = 18
 Title.Parent = MainFrame
 
--- ปุ่มเปิด/ปิด
 local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.1, 0, 0.3, 0)
@@ -160,7 +147,6 @@ local BtnCorner = Instance.new("UICorner")
 BtnCorner.CornerRadius = UDim.new(0, 8)
 BtnCorner.Parent = ToggleBtn
 
--- ช่องตั้งค่าหัว
 local BountyLabel = Instance.new("TextLabel")
 BountyLabel.Size = UDim2.new(0.4, 0, 0, 30)
 BountyLabel.Position = UDim2.new(0.1, 0, 0.6, 0)
@@ -186,7 +172,6 @@ local BoxCorner = Instance.new("UICorner")
 BoxCorner.CornerRadius = UDim.new(0, 6)
 BoxCorner.Parent = BountyBox
 
--- Status Text
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Size = UDim2.new(1, 0, 0, 20)
 StatusLabel.Position = UDim2.new(0, 0, 0.85, 0)
@@ -197,28 +182,19 @@ StatusLabel.Font = Enum.Font.Gotham
 StatusLabel.TextSize = 12
 StatusLabel.Parent = MainFrame
 
--- เปิด UI ให้โชว์ตอน Intro จบ
-task.delay(3.5, function()
-    MainFrame.Visible = true
-end)
+task.delay(3.5, function() MainFrame.Visible = true end)
 
--- Event เมื่อเปลี่ยนค่าหัว
 BountyBox.FocusLost:Connect(function()
     local num = tonumber(BountyBox.Text)
-    if num then
-        currentBountyThreshold = num
-    else
-        BountyBox.Text = tostring(currentBountyThreshold)
-    end
+    if num then currentBountyThreshold = num else BountyBox.Text = tostring(currentBountyThreshold) end
 end)
 
--- Event เมื่อกดปุ่ม Toggle
 ToggleBtn.MouseButton1Click:Connect(function()
     isRunning = not isRunning
     if isRunning then
         ToggleBtn.Text = "Auto Farm : ON"
         ToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
-        StatusLabel.Text = "Status: Farming..."
+        StatusLabel.Text = "Status: Starting..."
     else
         ToggleBtn.Text = "Start Auto Farm : OFF"
         ToggleBtn.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
@@ -227,10 +203,48 @@ ToggleBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
--- 3. Core Logic (อัปเกรดระบบหาตู้ให้ไวและไม่แลค)
+-- 3. Core Logic (อัปเกรดระบบรับงานอัตโนมัติ)
 -- ============================================================
 local function updateStatus(text)
     if StatusLabel then StatusLabel.Text = "Status: " .. text end
+end
+
+-- ฟังก์ชันกดยืนยันรับงานอัตโนมัติ (ครอบคลุมทั้ง UI และ E)
+local function autoConfirmJob()
+    -- 1. เช็คหา ProximityPrompt ใกล้ๆ
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") and obj.Enabled then
+                local part = obj.Parent
+                if part and part:IsA("BasePart") then
+                    if (hrp.Position - part.Position).Magnitude <= 20 then
+                        fireproximityprompt(obj)
+                        task.wait(0.5)
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. เช็คหาปุ่มบนหน้าจอ UI ที่มีคำว่า "ยืนยัน" หรือ "Confirm"
+    local validWords = {"ยืนยัน", "confirm", "accept", "yes", "ตกลง"}
+    for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+        if gui:IsA("TextButton") and gui.Visible then
+            local txt = string.lower(gui.Text)
+            for _, word in ipairs(validWords) do
+                if string.find(txt, word) then
+                    -- จำลองการคลิกโดยใช้ Executor Function
+                    if getconnections then
+                        for _, conn in pairs(getconnections(gui.MouseButton1Click)) do
+                            pcall(function() conn:Function() end)
+                            pcall(function() conn:Fire() end)
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 local function checkBounty()
@@ -240,21 +254,19 @@ local function checkBounty()
     if bountyValue and bountyValue.Value >= currentBountyThreshold then
         local character = LocalPlayer.Character
         local hrp = character and character:FindFirstChild("HumanoidRootPart")
-        
         if hrp then
             updateStatus("Bounty limit reached! Safe Zone...")
             hrp.CFrame = SAFE_ZONE_CFRAME
-            task.wait(3) -- คูลดาวน์หนีตำรวจ
-            return true -- คืนค่าว่าติดหน่วงเวลา
+            task.wait(3)
+            return true
         end
     end
     return false
 end
 
--- ปรับปรุง: อัปเดตรายชื่อตู้ทุกๆ 10 วินาทีแทนที่จะหาสแกนใหม่ทุกครั้ง (ลดอาการเกมกระตุก)
 local function refreshATMCache()
     local now = tick()
-    if now - lastScanTime < 10 then return end -- สแกนแค่ทุกๆ 10 วินาที
+    if now - lastScanTime < 10 then return end
     lastScanTime = now
     
     cachedATMs = {}
@@ -268,28 +280,21 @@ local function refreshATMCache()
     end
 end
 
--- ดึงตู้ที่ใกล้และพร้อมใช้งานที่สุด
 local function getDynamicATMs()
     refreshATMCache()
-    
     local validATMs = {}
     local character = LocalPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     if not hrp then return validATMs end
 
     for _, atmData in ipairs(cachedATMs) do
-        -- เช็คว่าตู้และปุ่มยังอยู่ และกดได้
         if atmData.model.Parent and atmData.prompt and atmData.prompt.Enabled then
             local dist = (hrp.Position - atmData.model:GetPivot().Position).Magnitude
             table.insert(validATMs, {model = atmData.model, prompt = atmData.prompt, distance = dist})
         end
     end
 
-    -- เรียงลำดับใกล้ไปไกล
-    table.sort(validATMs, function(a, b)
-        return a.distance < b.distance
-    end)
-    
+    table.sort(validATMs, function(a, b) return a.distance < b.distance end)
     return validATMs
 end
 
@@ -298,10 +303,8 @@ local function bustATM(atmData)
     local prompt = atmData.prompt
     local character = LocalPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
-    
     if not hrp then return false end
 
-    -- วาร์ปไปจุดสแตนด์บาย (ห่าง 3 studs ด้านหน้า)
     local atmCFrame = atmModel:GetPivot()
     local atmPos = atmCFrame.Position
     local standPos = (atmCFrame * CFrame.new(0, 0, 3)).Position 
@@ -315,14 +318,9 @@ local function bustATM(atmData)
         
         if fireproximityprompt then
             fireproximityprompt(prompt)
-            task.wait(5.5) -- รอเกจปล้นเสร็จ
-            
-            -- ปล้นเสร็จส่ง Remote
-            if atmRemote then
-                pcall(function() atmRemote:InvokeServer(atmModel) end)
-            end
-            
-            task.wait(1.5) -- รอจังหวะแอนิเมชัน/รอเงินเด้งเข้าตัว
+            task.wait(5.5) 
+            if atmRemote then pcall(function() atmRemote:InvokeServer(atmModel) end) end
+            task.wait(1.5) 
             return true
         end
     end
@@ -340,19 +338,32 @@ task.spawn(function()
             if not isCoolingDown then
                 local allATMs = getDynamicATMs()
                 
+                -- ถ้าระบบหาตู้เจอ (มีงานแล้ว) ให้เริ่มวาร์ปไปปล้น
                 if #allATMs > 0 then
                     for _, atmData in ipairs(allATMs) do
-                        if not isRunning then break end -- เบรกถ้ากดปิด UI กลางคัน
-                        
-                        local coolDownHit = checkBounty()
-                        if coolDownHit then break end -- ถ้าค่าหัวเกินระหว่างลูป ให้หยุดแล้วกลับเซฟโซน
+                        if not isRunning then break end
+                        if checkBounty() then break end
                         
                         if atmData.model:IsDescendantOf(Workspace) then
                             bustATM(atmData)
                         end
                     end
                 else
-                    updateStatus("Waiting for ATMs...")
+                    -- ถ้าหาตู้ไม่เจอ (อาจจะยังไม่ได้รับงาน) -> วาร์ปไปจุดรับงาน
+                    updateStatus("No ATMs found! Going to job center...")
+                    local character = LocalPlayer.Character
+                    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                    
+                    if hrp then
+                        hrp.CFrame = JOB_CENTER_CFRAME -- วาร์ปไปพิกัดรับงาน
+                        task.wait(1.5) -- รอแมพ/UI โหลด
+                        
+                        updateStatus("Confirming Job...")
+                        autoConfirmJob() -- สั่งกดยืนยันอัตโนมัติ
+                        task.wait(2) -- รอให้ตู้เกิด
+                        
+                        lastScanTime = 0 -- รีเซ็ตการค้นหาตู้ ให้มันแสกนตู้ใหม่ทันทีในลูปถัดไป
+                    end
                 end
             end
         end
