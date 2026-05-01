@@ -3,35 +3,29 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
-local GuiService = game:GetService("GuiService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 
 -- ============================================================
 -- [[ ตั้งค่าคงที่ ]]
 -- ============================================================
-local SAFE_ZONE_CFRAME     = CFrame.new(-2540.14, 15.83, 4030.19)
-local JOB_CENTER_CFRAME    = CFrame.new(-2524.55, 15.83, 4015.16)
+local SAFE_ZONE_CFRAME         = CFrame.new(-2540.14, 15.83, 4030.19)
 local DEFAULT_BOUNTY_THRESHOLD = 500000
 
-local JOB_PROMPT_RADIUS    = 20    -- รัศมีค้นหา Prompt รับงาน (studs)
-local CONFIRM_WAIT_TIME    = 2.5   -- วินาทีที่รอ UI ขึ้นก่อนกดยืนยัน
-local CONFIRM_RETRY_COUNT  = 8     -- จำนวนรอบ retry กดยืนยัน
-local CONFIRM_RETRY_WAIT   = 0.5   -- หน่วงแต่ละรอบ retry (วินาที)
-local ATM_WAIT_TIMEOUT     = 20    -- วินาทีรอตู้เกิดก่อน retry รับงาน
-local VALID_CONFIRM_WORDS  = {"ยืนยัน", "confirm", "accept", "ok", "ตกลง", "รับงาน", "take job", "start"}
+local ATM_BUST_RETRIES         = 3     -- จำนวนรอบ retry กดตีตู้ต่อตู้
+local ATM_BUST_RETRY_WAIT      = 0.2   -- หน่วงระหว่าง retry (วินาที)
+local ATM_BUST_COOLDOWN        = 0.15  -- หน่วงหลังกดสำเร็จ (วินาที)
+local LOOP_WAIT                = 0.08  -- หน่วง main loop (วินาที)
+local BOUNTY_DELIVER_WAIT      = 4     -- รอหลังส่งเงิน (วินาที)
+local CACHE_CLEAN_INTERVAL     = 5     -- รอบ loop ที่จะ clean cache (ทุก N รอบ)
 
 -- ============================================================
 -- [[ สถานะ ]]
 -- ============================================================
-local isRunning            = false
-local currentBountyThreshold = DEFAULT_BOUNTY_THRESHOLD
-local cachedATMs           = {}
-local hasJob               = false
-local waitAtmTimer         = 0
-local jobRetryCount        = 0
-local MAX_JOB_RETRY        = 3    -- retry รับงานสูงสุดกี่รอบก่อนหยุดพัก
+local isRunning                = false
+local currentBountyThreshold   = DEFAULT_BOUNTY_THRESHOLD
+local cachedATMs               = {}
+local loopCount                = 0
 
 local atmRemote = ReplicatedStorage:FindFirstChild("Remotes")
     and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
@@ -40,22 +34,36 @@ local atmRemote = ReplicatedStorage:FindFirstChild("Remotes")
 -- 1. ระบบดักจับตู้ (Real-time cache)
 -- ============================================================
 local function checkAndCacheATM(obj)
-    if obj:IsA("ProximityPrompt") then
-        local model = obj:FindFirstAncestorWhichIsA("Model")
-        if model and model.Name == "CriminalATM" then
-            -- เช็คซ้ำก่อนใส่
-            for _, existing in ipairs(cachedATMs) do
-                if existing.prompt == obj then return end
-            end
-            table.insert(cachedATMs, {prompt = obj})
-        end
+    if not obj:IsA("ProximityPrompt") then return end
+    local model = obj:FindFirstAncestorWhichIsA("Model")
+    if not model or model.Name ~= "CriminalATM" then return end
+
+    for _, existing in ipairs(cachedATMs) do
+        if existing.prompt == obj then return end
     end
+
+    table.insert(cachedATMs, { prompt = obj, model = model })
 end
 
+-- สแกนครั้งแรก
 for _, obj in ipairs(Workspace:GetDescendants()) do
     checkAndCacheATM(obj)
 end
 Workspace.DescendantAdded:Connect(checkAndCacheATM)
+
+-- ล้าง cache ที่ prompt หายไปแล้ว
+local function cleanATMCache()
+    for i = #cachedATMs, 1, -1 do
+        local data = cachedATMs[i]
+        local ok = data.prompt
+            and data.prompt.Parent ~= nil
+            and data.model ~= nil
+            and data.model.Parent ~= nil
+        if not ok then
+            table.remove(cachedATMs, i)
+        end
+    end
+end
 
 -- ============================================================
 -- 2. UI
@@ -109,11 +117,12 @@ local function showIntro(parentSg)
     line2.Parent = container
 
     TweenService:Create(container, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-        {Position = UDim2.new(0.5, -200, 0.5, -65)}):Play()
+        { Position = UDim2.new(0.5, -200, 0.5, -65) }):Play()
 
     task.delay(3.2, function()
-        local tweenOut = TweenService:Create(introFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-            {BackgroundTransparency = 1})
+        local tweenOut = TweenService:Create(introFrame,
+            TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+            { BackgroundTransparency = 1 })
         tweenOut:Play()
         task.delay(0.3, function() introFrame:Destroy() end)
     end)
@@ -128,8 +137,8 @@ ScreenGui.Parent = CoreGui
 showIntro(ScreenGui)
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 300, 0, 210)
-MainFrame.Position = UDim2.new(0.5, -150, 0.5, -105)
+MainFrame.Size = UDim2.new(0, 300, 0, 185)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -92)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -181,10 +190,9 @@ BountyBox.ClearTextOnFocus = false
 BountyBox.Parent = MainFrame
 Instance.new("UICorner", BountyBox).CornerRadius = UDim.new(0, 6)
 
--- แถบ Status (2 บรรทัด)
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Size = UDim2.new(1, -10, 0, 20)
-StatusLabel.Position = UDim2.new(0, 5, 0.82, 0)
+StatusLabel.Position = UDim2.new(0, 5, 0.83, 0)
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Text = "Status: Idle"
 StatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
@@ -193,23 +201,26 @@ StatusLabel.TextSize = 12
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 StatusLabel.Parent = MainFrame
 
-local JobLabel = Instance.new("TextLabel")
-JobLabel.Size = UDim2.new(1, -10, 0, 18)
-JobLabel.Position = UDim2.new(0, 5, 0.92, 0)
-JobLabel.BackgroundTransparency = 1
-JobLabel.Text = "Job: None"
-JobLabel.TextColor3 = Color3.fromRGB(120, 200, 120)
-JobLabel.Font = Enum.Font.Gotham
-JobLabel.TextSize = 11
-JobLabel.TextXAlignment = Enum.TextXAlignment.Left
-JobLabel.Parent = MainFrame
+local ATMCountLabel = Instance.new("TextLabel")
+ATMCountLabel.Size = UDim2.new(1, -10, 0, 18)
+ATMCountLabel.Position = UDim2.new(0, 5, 0.92, 0)
+ATMCountLabel.BackgroundTransparency = 1
+ATMCountLabel.Text = "ATMs in cache: 0"
+ATMCountLabel.TextColor3 = Color3.fromRGB(120, 200, 120)
+ATMCountLabel.Font = Enum.Font.Gotham
+ATMCountLabel.TextSize = 11
+ATMCountLabel.TextXAlignment = Enum.TextXAlignment.Left
+ATMCountLabel.Parent = MainFrame
 
 task.delay(3.5, function() MainFrame.Visible = true end)
 
 BountyBox.FocusLost:Connect(function()
     local num = tonumber(BountyBox.Text)
-    if num then currentBountyThreshold = num
-    else BountyBox.Text = tostring(currentBountyThreshold) end
+    if num then
+        currentBountyThreshold = num
+    else
+        BountyBox.Text = tostring(currentBountyThreshold)
+    end
 end)
 
 ToggleBtn.MouseButton1Click:Connect(function()
@@ -217,241 +228,73 @@ ToggleBtn.MouseButton1Click:Connect(function()
     if isRunning then
         ToggleBtn.Text = "Auto Farm : ON"
         ToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 200, 60)
-        StatusLabel.Text = "Status: Starting..."
-        hasJob = false
-        waitAtmTimer = 0
-        jobRetryCount = 0
+        StatusLabel.Text = "Status: Running"
     else
         ToggleBtn.Text = "Start Auto Farm : OFF"
         ToggleBtn.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
         StatusLabel.Text = "Status: Paused"
-        JobLabel.Text = "Job: None"
     end
 end)
 
 -- ============================================================
--- 3. Helper Functions
+-- 3. Helper
 -- ============================================================
 local function updateStatus(text)
     if StatusLabel then StatusLabel.Text = "Status: " .. text end
     print("[UKC_ATM] " .. text)
 end
 
-local function updateJob(text)
-    if JobLabel then JobLabel.Text = "Job: " .. text end
+local function updateATMCount()
+    if ATMCountLabel then
+        ATMCountLabel.Text = "ATMs in cache: " .. #cachedATMs
+    end
 end
 
-local function getCleanText(guiObj)
-    if guiObj:IsA("TextLabel") or guiObj:IsA("TextButton") or guiObj:IsA("TextBox") then
-        local raw = guiObj.ContentText ~= "" and guiObj.ContentText or guiObj.Text
-        -- ลบ RichText tags
-        raw = raw:gsub("<[^>]+>", "")
-        return raw:lower():match("^%s*(.-)%s*$") -- trim
-    end
-    return ""
-end
-
--- กดปุ่มแบบ multi-method
-local function executeButtonClick(btn)
-    if getconnections then
-        for _, conn in pairs(getconnections(btn.MouseButton1Click)) do pcall(conn.Fire, conn) end
-        for _, conn in pairs(getconnections(btn.Activated)) do pcall(conn.Fire, conn) end
-    end
-    if firesignal then
-        pcall(function() firesignal(btn.MouseButton1Click) end)
-        pcall(function() firesignal(btn.Activated) end)
-    end
-    -- VirtualInputManager fallback
-    local absPos = btn.AbsolutePosition
-    local absSize = btn.AbsoluteSize
-    if absSize.X > 0 and absSize.Y > 0 then
-        local inset = GuiService:GetGuiInset()
-        local cx = absPos.X + absSize.X / 2
-        local cy = absPos.Y + absSize.Y / 2 + inset.Y
-        VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-        task.wait(0.05)
-        VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
-    end
+local function getHRP()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
 end
 
 -- ============================================================
--- 4. getJob() — ปรับปรุงใหม่
--- ============================================================
-
--- ยิง Proximity Prompt ทุก method ที่มี
-local function firePromptAllMethods(prompt)
-    if fireproximityprompt then
-        pcall(function() fireproximityprompt(prompt) end)
-    end
-    if fireclickdetector then
-        -- บางเกมใช้ ClickDetector แทน
-        local cd = prompt.Parent and prompt.Parent:FindFirstChildWhichIsA("ClickDetector")
-        if cd then pcall(function() fireclickdetector(cd) end) end
-    end
-end
-
--- สแกนหาปุ่มยืนยันใน PlayerGui อย่างเจาะลึก
-local function findAndClickConfirm()
-    for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-        if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Visible then
-            local size = gui.AbsoluteSize
-            if size.X < 5 or size.Y < 5 then continue end
-
-            -- รวม text ของตัวเองและ descendant ทั้งหมด
-            local combinedText = getCleanText(gui)
-            for _, child in ipairs(gui:GetDescendants()) do
-                combinedText = combinedText .. " " .. getCleanText(child)
-            end
-
-            for _, word in ipairs(VALID_CONFIRM_WORDS) do
-                if combinedText:find(word, 1, true) then
-                    print("[UKC_ATM] Found confirm button: '" .. combinedText:sub(1, 40) .. "'")
-                    executeButtonClick(gui)
-                    return true
-                end
-            end
-        end
-    end
-    return false
-end
-
--- ฟังก์ชันหลักรับงาน — คืนค่า true ถ้าสำเร็จ
-local function getJob()
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then
-        updateStatus("No character found, waiting...")
-        return false
-    end
-
-    updateStatus("Teleporting to job center...")
-    hrp.CFrame = JOB_CENTER_CFRAME
-    task.wait(1.2) -- รอ server sync
-
-    -- ---- ขั้นตอน 1: หา ProximityPrompt ในรัศมี ----
-    updateStatus("Searching for job prompt...")
-    local foundPrompts = {}
-
-    for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") and obj.Enabled then
-            local part = obj.Parent
-            if part and part:IsA("BasePart") then
-                local dist = (hrp.Position - part.Position).Magnitude
-                if dist <= JOB_PROMPT_RADIUS then
-                    table.insert(foundPrompts, {prompt = obj, dist = dist})
-                end
-            end
-        end
-    end
-
-    -- เรียงจากใกล้ -> ไกล
-    table.sort(foundPrompts, function(a, b) return a.dist < b.dist end)
-
-    if #foundPrompts == 0 then
-        updateStatus("No job prompt found nearby!")
-        return false
-    end
-
-    -- ---- ขั้นตอน 2: ยิง Prompt (ลอง retry ทุกตัว) ----
-    for _, data in ipairs(foundPrompts) do
-        data.prompt.RequiresLineOfSight = false
-        data.prompt.MaxActivationDistance = 50
-        firePromptAllMethods(data.prompt)
-        print("[UKC_ATM] Fired prompt: " .. data.prompt.Parent.Name .. " (dist=" .. math.floor(data.dist) .. ")")
-    end
-
-    -- ---- ขั้นตอน 3: รอ UI ขึ้น แล้ว retry กดยืนยันหลายรอบ ----
-    updateStatus("Waiting for job UI...")
-    task.wait(CONFIRM_WAIT_TIME)
-
-    local confirmed = false
-    for attempt = 1, CONFIRM_RETRY_COUNT do
-        updateStatus("Confirming job... (attempt " .. attempt .. "/" .. CONFIRM_RETRY_COUNT .. ")")
-        confirmed = findAndClickConfirm()
-        if confirmed then
-            updateStatus("Job accepted!")
-            updateJob("Active")
-            task.wait(0.8)
-            return true
-        end
-
-        -- ถ้า retry รอบแรกไม่เจอ UI ให้ยิง prompt ซ้ำ
-        if attempt <= 2 then
-            for _, data in ipairs(foundPrompts) do
-                firePromptAllMethods(data.prompt)
-            end
-        end
-
-        task.wait(CONFIRM_RETRY_WAIT)
-    end
-
-    updateStatus("Could not confirm job UI!")
-    updateJob("Failed")
-    return false
-end
-
--- ============================================================
--- 5. checkBounty()
--- ============================================================
-local function checkBounty()
-    local character = LocalPlayer.Character
-    if not character then return false end
-
-    local highestNumber = 0
-    for _, obj in ipairs(character:GetDescendants()) do
-        if obj:IsA("TextLabel") then
-            if obj:FindFirstAncestorWhichIsA("BillboardGui") or obj:FindFirstAncestorWhichIsA("SurfaceGui") then
-                local cleanText = obj.Text:gsub(",", "")
-                for numStr in cleanText:gmatch("%d+") do
-                    local num = tonumber(numStr)
-                    if num and num > highestNumber then highestNumber = num end
-                end
-            end
-        end
-    end
-
-    if currentBountyThreshold > 0 and highestNumber >= currentBountyThreshold then
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            updateStatus("Bounty limit! Delivering money...")
-            hrp.CFrame = SAFE_ZONE_CFRAME
-            task.wait(4)
-            -- หลังส่งเงินเสร็จ ต้องรับงานใหม่
-            hasJob = false
-            waitAtmTimer = 0
-            jobRetryCount = 0
-            return true
-        end
-    end
-    return false
-end
-
--- ============================================================
--- 6. getATMs()
+-- 4. getATMs() — คืน list ตู้ที่ valid เรียงตามระยะ
 -- ============================================================
 local function getATMs()
+    local hrp = getHRP()
+    if not hrp then return {} end
+
     local validATMs = {}
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return validATMs end
 
     for i = #cachedATMs, 1, -1 do
-        local atmData = cachedATMs[i]
-        local prompt = atmData.prompt
+        local data = cachedATMs[i]
+        local prompt = data.prompt
+        local model  = data.model
 
-        if prompt and prompt.Parent and prompt.Enabled then
-            local part = prompt.Parent
+        -- ตรวจ validity
+        local promptOK = prompt
+            and prompt.Parent ~= nil
+            and prompt.Enabled
+        local modelOK = model and model.Parent ~= nil
+
+        if not promptOK or not modelOK then
+            table.remove(cachedATMs, i)
+        else
+            -- หา pivot position
             local pos
-            if part:IsA("BasePart") then
-                pos = part.Position
-            elseif part:IsA("Model") then
-                pos = part:GetPivot().Position
+            local pivot = pcall(function() pos = model:GetPivot().Position end)
+            if not pos then
+                local primary = model.PrimaryPart
+                if primary then pos = primary.Position end
             end
 
             if pos then
                 local dist = (hrp.Position - pos).Magnitude
-                table.insert(validATMs, {prompt = prompt, part = part, pos = pos, distance = dist})
+                table.insert(validATMs, {
+                    prompt   = prompt,
+                    model    = model,
+                    pos      = pos,
+                    distance = dist,
+                })
             end
-        else
-            table.remove(cachedATMs, i)
         end
     end
 
@@ -460,43 +303,124 @@ local function getATMs()
 end
 
 -- ============================================================
--- 7. bustATM()
+-- 5. bustATM() — ตีตู้ พร้อม retry
 -- ============================================================
 local function bustATM(atmData)
-    local prompt  = atmData.prompt
-    local part    = atmData.part
-    local pos     = atmData.pos
-    local character = LocalPlayer.Character
-    local hrp     = character and character:FindFirstChild("HumanoidRootPart")
-    local camera  = Workspace.CurrentCamera
+    local prompt = atmData.prompt
+    local model  = atmData.model
+    local pos    = atmData.pos
 
+    -- Guard: ตรวจซ้ำก่อนทำงาน
+    if not prompt or prompt.Parent == nil then
+        return false
+    end
+    if not model or model.Parent == nil then
+        return false
+    end
+
+    local hrp = getHRP()
     if not hrp then return false end
 
-    prompt.RequiresLineOfSight  = false
-    prompt.MaxActivationDistance = 50
-    if prompt.HoldDuration > 0 then prompt.HoldDuration = 0 end
-
-    local standPos = pos + Vector3.new(0, 0, 2.5)
-    if part:IsA("BasePart") then
-        standPos = (part.CFrame * CFrame.new(0, 0, 2.5)).Position
+    -- ปรับ prompt settings
+    prompt.RequiresLineOfSight   = false
+    prompt.MaxActivationDistance = 60
+    if prompt.HoldDuration and prompt.HoldDuration > 0 then
+        prompt.HoldDuration = 0
     end
 
+    -- คำนวณตำแหน่งยืน (ด้านหน้าตู้)
+    local standOffset = Vector3.new(0, 0, 2.5)
+    local primary = model.PrimaryPart
+    local standPos
+    if primary then
+        standPos = (primary.CFrame * CFrame.new(standOffset)).Position
+    else
+        standPos = pos + standOffset
+    end
+
+    -- Teleport ไปยืนหน้าตู้ หันหน้าเข้าหาตู้
     hrp.CFrame = CFrame.lookAt(standPos, Vector3.new(pos.X, standPos.Y, pos.Z))
-    if camera then
-        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, pos)
+
+    task.wait(0.08)
+
+    -- Retry loop
+    local success = false
+    for attempt = 1, ATM_BUST_RETRIES do
+        -- ตรวจอีกรอบหลัง teleport
+        if not prompt or prompt.Parent == nil or not prompt.Enabled then break end
+        if not getHRP() then break end
+
+        updateStatus("Busting ATM | dist=" .. math.floor(atmData.distance) .. " | try " .. attempt)
+
+        -- Fire proximity prompt
+        if fireproximityprompt then
+            local ok, err = pcall(function() fireproximityprompt(prompt) end)
+            if not ok then
+                print("[UKC_ATM] fireproximityprompt error: " .. tostring(err))
+            end
+        end
+
+        -- Invoke remote ถ้ามี
+        if atmRemote then
+            local ok, err = pcall(function() atmRemote:InvokeServer(model) end)
+            if not ok then
+                print("[UKC_ATM] atmRemote error: " .. tostring(err))
+            end
+        end
+
+        -- ตรวจว่า prompt ถูก disable หลังกด (หมายถึงสำเร็จ)
+        task.wait(ATM_BUST_RETRY_WAIT)
+        if not prompt.Enabled or prompt.Parent == nil then
+            success = true
+            break
+        end
+
+        -- ถ้ายังไม่ได้ลอง re-teleport ใกล้กว่าเดิมนิดหน่อย
+        if attempt < ATM_BUST_RETRIES then
+            standPos = pos + Vector3.new(0, 0, 1.5)
+            hrp.CFrame = CFrame.lookAt(standPos, Vector3.new(pos.X, standPos.Y, pos.Z))
+            task.wait(0.05)
+        end
     end
 
-    task.wait(0.1)
+    if success then
+        updateStatus("ATM busted!")
+        task.wait(ATM_BUST_COOLDOWN)
+    end
 
-    if prompt.Enabled then
-        updateStatus("Busting ATM (" .. math.floor(atmData.distance) .. " st.)")
-        if fireproximityprompt then
-            pcall(function() fireproximityprompt(prompt) end)
-            task.wait(0.15)
-            if atmRemote then
-                local model = part:FindFirstAncestorWhichIsA("Model")
-                if model then pcall(function() atmRemote:InvokeServer(model) end) end
+    return success
+end
+
+-- ============================================================
+-- 6. checkBounty()
+-- ============================================================
+local function checkBounty()
+    local character = LocalPlayer.Character
+    if not character then return false end
+
+    local highestNumber = 0
+    for _, obj in ipairs(character:GetDescendants()) do
+        if obj:IsA("TextLabel") then
+            local inBillboard = obj:FindFirstAncestorWhichIsA("BillboardGui")
+            local inSurface   = obj:FindFirstAncestorWhichIsA("SurfaceGui")
+            if inBillboard or inSurface then
+                local cleanText = obj.Text:gsub(",", "")
+                for numStr in cleanText:gmatch("%d+") do
+                    local num = tonumber(numStr)
+                    if num and num > highestNumber then
+                        highestNumber = num
+                    end
+                end
             end
+        end
+    end
+
+    if currentBountyThreshold > 0 and highestNumber >= currentBountyThreshold then
+        local hrp = getHRP()
+        if hrp then
+            updateStatus("Bounty limit (" .. highestNumber .. ")! Delivering...")
+            hrp.CFrame = SAFE_ZONE_CFRAME
+            task.wait(BOUNTY_DELIVER_WAIT)
             return true
         end
     end
@@ -504,64 +428,42 @@ local function bustATM(atmData)
 end
 
 -- ============================================================
--- 8. MAIN LOOP
+-- 7. MAIN LOOP
 -- ============================================================
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(LOOP_WAIT)
 
-        if isRunning then
-            -- ตรวจ bounty ก่อนเสมอ
-            local delivering = checkBounty()
-            if delivering then continue end
+        if not isRunning then continue end
 
-            local allATMs = getATMs()
+        loopCount = loopCount + 1
 
-            if #allATMs > 0 then
-                -- มีตู้ = รีเซ็ตทุกอย่าง
-                hasJob      = true
-                waitAtmTimer = 0
-                jobRetryCount = 0
-                bustATM(allATMs[1])
+        -- Clean cache เป็นระยะ
+        if loopCount % CACHE_CLEAN_INTERVAL == 0 then
+            cleanATMCache()
+            updateATMCount()
+        end
 
-            else
-                -- ไม่มีตู้
-                if not hasJob then
-                    -- ยังไม่มีงาน → รับงาน
-                    if jobRetryCount >= MAX_JOB_RETRY then
-                        -- ลองหลายรอบแล้วยังไม่ได้ หยุดพักก่อน
-                        updateStatus("Job retry limit reached, resting 10s...")
-                        updateJob("Resting")
-                        task.wait(10)
-                        jobRetryCount = 0
-                    else
-                        jobRetryCount = jobRetryCount + 1
-                        updateStatus("Trying to get job... (try " .. jobRetryCount .. "/" .. MAX_JOB_RETRY .. ")")
-                        local success = getJob()
-                        if success then
-                            hasJob = true
-                            waitAtmTimer = 0
-                        else
-                            -- รับงานไม่สำเร็จ รอก่อน
-                            task.wait(3)
-                        end
-                    end
+        -- Guard: ต้องมี character
+        local hrp = getHRP()
+        if not hrp then
+            updateStatus("Waiting for character...")
+            task.wait(1)
+            continue
+        end
 
-                else
-                    -- รับงานแล้ว แต่รอตู้เกิด
-                    updateStatus("Waiting for ATMs... (" .. math.floor(waitAtmTimer) .. "s)")
-                    waitAtmTimer = waitAtmTimer + 0.1
+        -- ตรวจ bounty
+        if checkBounty() then continue end
 
-                    if waitAtmTimer >= ATM_WAIT_TIMEOUT then
-                        -- timeout → ถือว่าบัค รีเซ็ตไปรับงานใหม่
-                        updateStatus("ATM timeout, re-acquiring job...")
-                        updateJob("Resetting")
-                        hasJob = false
-                        waitAtmTimer = 0
-                        jobRetryCount = 0
-                    end
-                end
-            end
+        -- หาตู้และตี
+        local allATMs = getATMs()
+        updateATMCount()
+
+        if #allATMs > 0 then
+            bustATM(allATMs[1])
+        else
+            updateStatus("No ATMs found | cache=" .. #cachedATMs)
+            task.wait(0.5)
         end
     end
 end)
