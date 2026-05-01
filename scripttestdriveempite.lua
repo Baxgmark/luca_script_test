@@ -8,7 +8,6 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
 -- [[ ตั้งค่าคงที่ ]]
-local BOUNTY_NAME = "Bounty"
 local SAFE_ZONE_CFRAME = CFrame.new(-2540.14, 15.83, 4030.19)
 local JOB_CENTER_CFRAME = CFrame.new(-2524.55, 15.83, 4015.16) -- พิกัดจุดรับงาน
 local DEFAULT_BOUNTY_THRESHOLD = 500000
@@ -203,15 +202,13 @@ ToggleBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
--- 3. Core Logic (อัปเกรดระบบรับงานอัตโนมัติ)
+-- 3. Core Logic (อ่านค่าหัวจาก 3D Text บนหัว)
 -- ============================================================
 local function updateStatus(text)
     if StatusLabel then StatusLabel.Text = "Status: " .. text end
 end
 
--- ฟังก์ชันกดยืนยันรับงานอัตโนมัติ (ครอบคลุมทั้ง UI และ E)
 local function autoConfirmJob()
-    -- 1. เช็คหา ProximityPrompt ใกล้ๆ
     local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if hrp then
         for _, obj in ipairs(Workspace:GetDescendants()) do
@@ -227,14 +224,12 @@ local function autoConfirmJob()
         end
     end
 
-    -- 2. เช็คหาปุ่มบนหน้าจอ UI ที่มีคำว่า "ยืนยัน" หรือ "Confirm"
     local validWords = {"ยืนยัน", "confirm", "accept", "yes", "ตกลง"}
     for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
         if gui:IsA("TextButton") and gui.Visible then
             local txt = string.lower(gui.Text)
             for _, word in ipairs(validWords) do
                 if string.find(txt, word) then
-                    -- จำลองการคลิกโดยใช้ Executor Function
                     if getconnections then
                         for _, conn in pairs(getconnections(gui.MouseButton1Click)) do
                             pcall(function() conn:Function() end)
@@ -247,13 +242,37 @@ local function autoConfirmJob()
     end
 end
 
+-- [ อัปเดตใหม่: ฟังก์ชันเช็คค่าหัวจากป้าย 3D บนหัวตัวละคร ]
 local function checkBounty()
-    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
-    local bountyValue = leaderstats and leaderstats:FindFirstChild(BOUNTY_NAME)
+    local character = LocalPlayer.Character
+    if not character then return false end
+
+    local highestNumberFound = 0
     
-    if bountyValue and bountyValue.Value >= currentBountyThreshold then
-        local character = LocalPlayer.Character
-        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    -- หาข้อความทั้งหมดที่อยู่ในโมเดลตัวละคร (เช่นลอยอยู่บนหัว)
+    for _, obj in ipairs(character:GetDescendants()) do
+        if obj:IsA("TextLabel") then
+            -- เช็คว่า TextLabel นี้อยู่ในป้าย 3D (BillboardGui หรือ SurfaceGui)
+            if obj:FindFirstAncestorWhichIsA("BillboardGui") or obj:FindFirstAncestorWhichIsA("SurfaceGui") then
+                local text = obj.Text
+                -- ลบเครื่องหมายลูกน้ำออก เช่น "500,000" ให้กลายเป็น "500000"
+                local cleanText = string.gsub(text, ",", "")
+                
+                -- สแกนหาชุดตัวเลขทั้งหมดในข้อความ
+                for numberStr in string.gmatch(cleanText, "%d+") do
+                    local num = tonumber(numberStr)
+                    -- เก็บค่าตัวเลขที่มากที่สุดที่เจอในป้าย (ป้องกันการติดบัคเลขเลเวลหรืออื่นๆ)
+                    if num and num > highestNumberFound then
+                        highestNumberFound = num
+                    end
+                end
+            end
+        end
+    end
+
+    -- ถ้ายอดเงินค่าหัวที่เจอมากกว่าหรือเท่ากับค่าที่ตั้งไว้ (และมีค่ามากกว่า 0)
+    if highestNumberFound >= currentBountyThreshold and currentBountyThreshold > 0 then
+        local hrp = character:FindFirstChild("HumanoidRootPart")
         if hrp then
             updateStatus("Bounty limit reached! Safe Zone...")
             hrp.CFrame = SAFE_ZONE_CFRAME
@@ -261,6 +280,7 @@ local function checkBounty()
             return true
         end
     end
+    
     return false
 end
 
@@ -338,7 +358,6 @@ task.spawn(function()
             if not isCoolingDown then
                 local allATMs = getDynamicATMs()
                 
-                -- ถ้าระบบหาตู้เจอ (มีงานแล้ว) ให้เริ่มวาร์ปไปปล้น
                 if #allATMs > 0 then
                     for _, atmData in ipairs(allATMs) do
                         if not isRunning then break end
@@ -349,20 +368,19 @@ task.spawn(function()
                         end
                     end
                 else
-                    -- ถ้าหาตู้ไม่เจอ (อาจจะยังไม่ได้รับงาน) -> วาร์ปไปจุดรับงาน
                     updateStatus("No ATMs found! Going to job center...")
                     local character = LocalPlayer.Character
                     local hrp = character and character:FindFirstChild("HumanoidRootPart")
                     
                     if hrp then
-                        hrp.CFrame = JOB_CENTER_CFRAME -- วาร์ปไปพิกัดรับงาน
-                        task.wait(1.5) -- รอแมพ/UI โหลด
+                        hrp.CFrame = JOB_CENTER_CFRAME 
+                        task.wait(1.5) 
                         
                         updateStatus("Confirming Job...")
-                        autoConfirmJob() -- สั่งกดยืนยันอัตโนมัติ
-                        task.wait(2) -- รอให้ตู้เกิด
+                        autoConfirmJob() 
+                        task.wait(2) 
                         
-                        lastScanTime = 0 -- รีเซ็ตการค้นหาตู้ ให้มันแสกนตู้ใหม่ทันทีในลูปถัดไป
+                        lastScanTime = 0 
                     end
                 end
             end
