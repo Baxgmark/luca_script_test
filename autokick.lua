@@ -14,7 +14,7 @@ local currentMoney = 0
 local tracking     = false
 
 -- ========== DISCORD WEBHOOK (แก้ไขตรงนี้!) ==========
-local WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1499510823222247584/uAFjR_0i7LFAgZX7C5rqeJQAVcKO_Af7ug85-p2zGvmXGtDqAIH90hEsaRFGXtFGcsmX"
 
 -- ============================================================
 --  ส่ง Log ไป Discord
