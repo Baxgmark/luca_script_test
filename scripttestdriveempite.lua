@@ -4,22 +4,23 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
-local VirtualInputManager = game:GetService("VirtualInputManager") -- ดึงระบบจำลองเมาส์มาใช้
+local GuiService = game:GetService("GuiService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 
 -- [[ ตั้งค่าคงที่ ]]
-local SAFE_ZONE_CFRAME = CFrame.new(-2540.14, 15.83, 4030.19) -- จุดส่งเงิน/เซฟโซน
-local JOB_CENTER_CFRAME = CFrame.new(-2524.55, 15.83, 4015.16) -- จุดรับงาน
+local SAFE_ZONE_CFRAME = CFrame.new(-2540.14, 15.83, 4030.19)
+local JOB_CENTER_CFRAME = CFrame.new(-2524.55, 15.83, 4015.16)
 local DEFAULT_BOUNTY_THRESHOLD = 500000
 
 -- สถานะของ Script
 local isRunning = false
 local currentBountyThreshold = DEFAULT_BOUNTY_THRESHOLD
 local cachedATMs = {}
-local hasJob = false -- ตัวแปรเช็คว่ารับงานหรือยัง จะได้ไม่กลับไปรับซ้ำ
+local hasJob = false 
+local waitAtmTimer = 0 -- ตัวนับเวลา ถ้าตู้หายไปนานเกินไปจะไปรับงานใหม่
 
--- แคช Remote
 local atmRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("AttemptATMBustComplete")
 
 -- ============================================================
@@ -40,7 +41,7 @@ end
 Workspace.DescendantAdded:Connect(checkAndCacheATM)
 
 -- ============================================================
--- 2. UI & Intro Slide (ซ่อนส่วนนี้ไว้เพื่อความกระชับ โค้ดส่วน UI เหมือนเดิมเป๊ะ)
+-- 2. UI & Intro Slide 
 -- ============================================================
 local function showIntro(parentSg)
     local introFrame = Instance.new("Frame")
@@ -90,11 +91,7 @@ local function showIntro(parentSg)
     line2.TextSize = 18
     line2.Parent = container
 
-    local tweenIn = TweenService:Create(
-        container,
-        TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
-        { Position = UDim2.new(0.5, -200, 0.5, -65) }
-    )
+    local tweenIn = TweenService:Create(container, TweenInfo.new(0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { Position = UDim2.new(0.5, -200, 0.5, -65) })
     tweenIn:Play()
 
     task.delay(3.2, function()
@@ -205,67 +202,102 @@ ToggleBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================================
--- 3. Core Logic
+-- 3. Core Logic (เจาะระบบ UI)
 -- ============================================================
 local function updateStatus(text)
     if StatusLabel then StatusLabel.Text = "Status: " .. text end
 end
 
--- [อัปเกรด] ระบบกดยืนยัน UI แบบจำลองคลิกเมาส์จริงๆ (แก้ปัญหากดไม่ติด)
-local function autoConfirmJob()
-    -- 1. กดปุ่ม E ใกล้ตัว (ถ้ามี)
+-- ดึง Text แบบลบโค้ดสีทิ้ง (ทะลุ RichText)
+local function getCleanText(guiObj)
+    if guiObj:IsA("TextLabel") or guiObj:IsA("TextButton") or guiObj:IsA("TextBox") then
+        local text = guiObj.ContentText ~= "" and guiObj.ContentText or guiObj.Text
+        return string.lower(text)
+    end
+    return ""
+end
+
+-- ยิงคำสั่งกดปุ่มแบบโหดๆ 4 รูปแบบพร้อมกัน
+local function executeButtonClick(btn)
+    -- วิธีที่ 1: ใช้ getconnections (คลิกรัวๆ ทุก Event)
+    if getconnections then
+        for _, conn in pairs(getconnections(btn.MouseButton1Click)) do pcall(function() conn:Fire() end) end
+        for _, conn in pairs(getconnections(btn.MouseButton1Down)) do pcall(function() conn:Fire() end) end
+        for _, conn in pairs(getconnections(btn.Activated)) do pcall(function() conn:Fire() end) end
+    end
+    
+    -- วิธีที่ 2: ใช้ firesignal
+    if firesignal then
+        pcall(function() firesignal(btn.MouseButton1Click) end)
+        pcall(function() firesignal(btn.Activated) end)
+    end
+    
+    -- วิธีที่ 3: ใช้ VirtualInputManager (แก้ GuiInset ตำแหน่งเมาส์)
+    local absPos = btn.AbsolutePosition
+    local absSize = btn.AbsoluteSize
+    if absSize.X > 0 and absSize.Y > 0 then
+        local inset = GuiService:GetGuiInset()
+        local centerX = absPos.X + (absSize.X / 2)
+        local centerY = absPos.Y + (absSize.Y / 2) + inset.Y -- บวกค่าขอบจอด้านบนให้คลิกตรงเป๊ะ
+        
+        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+        task.wait(0.05)
+        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+    end
+end
+
+-- ฟังก์ชันสำหรับไปกดรับงาน
+local function getJob()
     local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("ProximityPrompt") and obj.Enabled then
-                local part = obj.Parent
-                if part and part:IsA("BasePart") then
-                    if (hrp.Position - part.Position).Magnitude <= 20 then
-                        obj.RequiresLineOfSight = false
+    if not hrp then return end
+
+    updateStatus("Going to job center...")
+    hrp.CFrame = JOB_CENTER_CFRAME
+    task.wait(1) -- รอแมพโหลด
+
+    -- 1. ค้นหาปุ่ม E ของจุดรับงานและกด
+    updateStatus("Pressing E Prompt...")
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.Enabled then
+            local part = obj.Parent
+            if part and part:IsA("BasePart") then
+                if (hrp.Position - part.Position).Magnitude <= 20 then
+                    obj.RequiresLineOfSight = false
+                    if fireproximityprompt then
                         fireproximityprompt(obj)
                     end
                 end
             end
         end
     end
+    
+    task.wait(1.5) -- รอ UI อนิเมชั่นเด้งขึ้นมา
 
-    -- 2. ค้นหาและคลิก UI บนหน้าจอแบบจำลองคลิก
-    local validWords = {"ยืนยัน", "confirm", "accept", "yes", "ตกลง"}
+    -- 2. สแกนหาปุ่ม "ยืนยัน" บนจอและคลิก
+    updateStatus("Confirming UI...")
+    local validWords = {"ยืนยัน", "confirm", "accept"}
+    
     for _, gui in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-        -- ค้นหาปุ่ม (TextButton หรือ ImageButton)
-        if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Visible then
-            local txt = ""
-            if gui:IsA("TextButton") then txt = string.lower(gui.Text) end
+        if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Visible and gui.AbsoluteSize.X > 0 then
             
-            -- บางแมพใช้ TextLabel ซ้อนอยู่ใน ImageButton
-            if txt == "" then
-                local childLabel = gui:FindFirstChildWhichIsA("TextLabel")
-                if childLabel then txt = string.lower(childLabel.Text) end
+            -- รวม Text ทั้งหมดที่อยู่บนตัวมันและลูกๆ ของมัน
+            local combinedText = getCleanText(gui)
+            for _, child in ipairs(gui:GetDescendants()) do
+                combinedText = combinedText .. " " .. getCleanText(child)
             end
-
+            
             for _, word in ipairs(validWords) do
-                if string.find(txt, word) then
-                    -- พบปุ่มแล้ว! ใช้ VirtualInputManager สั่งเมาส์ไปคลิกที่ตำแหน่งปุ่ม
-                    local absPos = gui.AbsolutePosition
-                    local absSize = gui.AbsoluteSize
-                    if absPos and absSize then
-                        local centerX = absPos.X + (absSize.X / 2)
-                        local centerY = absPos.Y + (absSize.Y / 2)
-                        
-                        -- กดลง
-                        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, gui, 1)
-                        task.wait(0.05)
-                        -- ปล่อยเมาส์
-                        VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, gui, 1)
-                        return true
-                    end
+                if string.find(combinedText, word) then
+                    executeButtonClick(gui)
+                    updateStatus("Clicked Confirm!")
+                    task.wait(1)
+                    return
                 end
             end
         end
     end
 end
 
--- [อัปเกรด] เช็คค่าหัวและทำการส่งเงิน เมื่อส่งเสร็จจะวนลูปต่อไปได้ทันที
 local function checkBounty()
     local character = LocalPlayer.Character
     if not character then return false end
@@ -286,19 +318,15 @@ local function checkBounty()
         end
     end
 
-    -- ถ้าค่าหัวถึงเป้า
     if highestNumberFound >= currentBountyThreshold and currentBountyThreshold > 0 then
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if hrp then
             updateStatus("Bounty limit reached! Delivering money...")
-            hrp.CFrame = SAFE_ZONE_CFRAME -- วาร์ปไปจุดส่งเงิน
-            
-            -- รอ 4 วินาทีให้เกมดึงเงินเข้าตัว และล้างค่าหัวบนหัวให้เหลือ 0
+            hrp.CFrame = SAFE_ZONE_CFRAME 
             task.wait(4) 
-            return true -- คืนค่าว่าติดคูลดาวน์ส่งเงินอยู่ (ลูปจะได้ไม่เพิ่งไปหาตู้)
+            return true 
         end
     end
-    
     return false
 end
 
@@ -364,7 +392,6 @@ local function bustATM(atmData)
                 if model then pcall(function() atmRemote:InvokeServer(model) end) end
             end
             
-            hasJob = true -- ถ้ากดตู้ได้ แสดงว่ามีงานแล้วแน่นอน
             return true
         end
     end
@@ -372,44 +399,38 @@ local function bustATM(atmData)
 end
 
 -- ============================================================
--- 4. MAIN LOOP (อัปเกรดระบบลอจิกวนลูป)
+-- 4. MAIN LOOP 
 -- ============================================================
 task.spawn(function()
     while true do
-        task.wait() 
+        task.wait(0.1) -- หน่วงนิดนึงกันเกมแครช
         
         if isRunning then
-            -- 1. เช็คค่าหัวก่อนว่าเกินไหม
             local isDeliveringMoney = checkBounty()
             
-            -- 2. ถ้าไม่ได้ส่งเงินอยู่ ให้ทำการฟาร์มตู้
             if not isDeliveringMoney then
                 local allATMs = getATMs()
                 
-                -- ถ้ามีตู้ในแมพ พุ่งไปทำทันที
                 if #allATMs > 0 then
-                    hasJob = true -- มีตู้ให้ทำแปลว่ารับงานแล้ว
+                    -- มีตู้ = มีงานแล้ว รีเซ็ตตัวนับเวลาทิ้ง
+                    hasJob = true 
+                    waitAtmTimer = 0 
                     bustATM(allATMs[1])
                 else
-                    -- ถ้าไม่มีตู้ในแมพ
+                    -- ถ้าไม่มีตู้
                     if not hasJob then
-                        -- กรณีที่ 1: เพิ่งเปิดบอท และยังไม่เคยรับงานเลย ให้ไปรับงาน
-                        updateStatus("No ATMs! Going to job center...")
-                        local character = LocalPlayer.Character
-                        local hrp = character and character:FindFirstChild("HumanoidRootPart")
-                        
-                        if hrp then
-                            hrp.CFrame = JOB_CENTER_CFRAME 
-                            task.wait(0.5) 
-                            
-                            autoConfirmJob() -- สั่งคลิก "ยืนยัน"
-                            task.wait(1) 
-                            hasJob = true -- จำไว้ว่ารับงานแล้ว จะได้ไม่มาวนที่นี่อีก
-                        end
+                        getJob()
+                        hasJob = true -- พอรับงานเสร็จ ติ๊กไว้ว่ามีงานแล้ว จะได้ไม่วนกลับมากดรัวๆ
                     else
-                        -- กรณีที่ 2: มีงานแล้ว แต่ตู้แค่กำลังรอเกิดใหม่ (หรือเพิ่งส่งเงินเสร็จ)
+                        -- ถ้ารับงานแล้วแต่ไม่มีตู้ (รอตู้เกิด)
                         updateStatus("Waiting for ATMs to respawn...")
-                        task.wait(0.5) -- ยืนรอที่เดิมแปบนึง เดี๋ยวมันก็สแกนเจอเอง
+                        waitAtmTimer = waitAtmTimer + 0.1
+                        
+                        -- ถ้ารอตู้เกิดนานเกิน 15 วินาที แปลว่าบัคไม่ได้รับงาน หรือตู้บัค
+                        if waitAtmTimer >= 15 then
+                            hasJob = false -- รีเซ็ตให้มันกลับไปรับงานใหม่
+                            waitAtmTimer = 0
+                        end
                     end
                 end
             end
