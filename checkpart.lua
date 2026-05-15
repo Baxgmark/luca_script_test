@@ -2,7 +2,7 @@ local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 
--- [!] ใส่ Webhook URL ของคุณที่นี่
+-- [!] Webhook ของคุณ (ตามที่ขอ ไม่ได้ตัดออก)
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1504925889631227947/OnGHrSl5-QnRaX5Q3jrT840J1EhDh2U219BRcBCiGP4SF8Kx5AQdsbz4U1-9eAXFmgVO" 
 
 local httprequest = (syn and syn.request) or (http and http.request) or
@@ -17,11 +17,11 @@ local function send(title, desc)
             Url = WEBHOOK_URL, Method = "POST",
             Headers = {["Content-Type"] = "application/json"},
             Body = HttpService:JSONEncode({
-                username = "🔍 Blox Deep Scanner",
+                username = "🔍 Blox Smart Scanner",
                 embeds = {{
                     title = title, 
                     description = desc, 
-                    color = 0x00FF00,
+                    color = 0x00FFFF,
                     footer = {text = "Player: " .. localPlayer.Name}
                 }}
             })
@@ -29,33 +29,61 @@ local function send(title, desc)
     end)
 end
 
-local keywords = {"atm", "bank", "cash", "money"} 
+-- 🎯 คีย์เวิร์ดที่ต้องการหา
+local keywords = {"atm", "bank", "cash", "money", "vault", "register"} 
 
-local function deepScanTarget(targetFolder)
+-- 🚫 โฟลเดอร์ขยะที่จะไม่อ่าน
+local blacklist = {
+    ["lods"] = true, 
+    ["buildings"] = true, 
+    ["terrain"] = true,
+    ["trees"] = true,
+    ["roads"] = true
+}
+
+local scanYield = 0
+
+local function smartScanTarget(targetFolder)
     local out = ""
     local count = 0
     
-    -- ดึงข้อมูลทั้งหมดมาเก็บไว้ในตารางก่อน
-    local descendants = targetFolder:GetDescendants()
-    
-    for i, obj in ipairs(descendants) do
-        if obj:IsA("Model") or obj:IsA("BasePart") then
-            local objName = string.lower(obj.Name)
+    local function scan(parent, depth)
+        depth = depth or 0
+        if depth > 20 then return end
+
+        for _, obj in ipairs(parent:GetChildren()) do
+            local lowerName = string.lower(obj.Name)
             
-            for _, kw in ipairs(keywords) do
-                if string.find(objName, kw) then
-                    out = out .. string.format("**%s** `[%s]`\n↳ `%s`\n\n", obj.Name, obj.ClassName, obj:GetFullName())
-                    count = count + 1
-                    break 
+            if not blacklist[lowerName] then
+                local isFound = false
+                
+                if obj:IsA("Model") or obj:IsA("BasePart") then
+                    for _, kw in ipairs(keywords) do
+                        if string.find(lowerName, kw) then
+                            out = out .. string.format("**%s** `[%s]`\n↳ `%s`\n\n", obj.Name, obj.ClassName, obj:GetFullName())
+                            count = count + 1
+                            isFound = true
+                            break 
+                        end
+                    end
+                end
+                
+                -- 💡 ถ้ายังไม่เจอเป้าหมาย ให้มุดหาต่อ
+                -- (ถ้าเจอแล้ว จะหยุดมุดเข้าไปในของชิ้นนั้น เพื่อป้องกันการสแปมชิ้นส่วนย่อยเช่นแบงก์ทีละใบ)
+                if not isFound then
+                    scan(obj, depth + 1)
                 end
             end
-        end
-        
-        -- 🛠️ ป้องกันเกมค้าง: ทุกๆ การสแกน 500 ชิ้น จะสั่งให้สคริปต์พัก 1 เฟรม
-        if i % 500 == 0 then
-            task.wait() 
+            
+            -- 🛠️ ป้องกันเกมค้าง: ทุกๆ การวนลูป 100 ครั้ง ให้พัก 1 เฟรม
+            scanYield = scanYield + 1
+            if scanYield % 100 == 0 then
+                task.wait()
+            end
         end
     end
+    
+    scan(targetFolder)
     
     if count > 0 then
         send("🎯 พบเป้าหมายใน: " .. targetFolder.Name, string.format("พบทั้งหมด %d รายการ:\n\n%s", count, out))
@@ -64,7 +92,7 @@ local function deepScanTarget(targetFolder)
 end
 
 task.wait(3)
-send("🚀 เริ่มการสแกนแบบล้ำลึก (Safe Mode)", "กำลังค้นหาคีย์เวิร์ด: `" .. table.concat(keywords, "`, `") .. "`\nสแกนแบบแบ่งโหลด ป้องกันเกมค้าง")
+send("🚀 เริ่มการสแกนแบบ Smart Mode", "กำลังค้นหาคีย์เวิร์ด: `" .. table.concat(keywords, "`, `") .. "`\nระบบจะจัดกลุ่มข้อมูลและข้ามชิ้นส่วนย่อยเพื่อลดการสแปม")
 task.wait(2)
 
 local targets = {"Props", "Map", "Roleplay", "Game", "RegionsContent"}
@@ -72,8 +100,8 @@ local targets = {"Props", "Map", "Roleplay", "Game", "RegionsContent"}
 for _, name in ipairs(targets) do
     local folder = game.Workspace:FindFirstChild(name)
     if folder then
-        deepScanTarget(folder)
+        smartScanTarget(folder)
     end
 end
 
-send("✅ สแกนเสร็จสิ้น", "ระบบได้ทำการค้นหาในโฟลเดอร์เป้าหมายเรียบร้อยแล้ว")
+send("✅ สแกนเสร็จสิ้น", "ไม่มีข้อมูลเพิ่มเติมแล้ว")
